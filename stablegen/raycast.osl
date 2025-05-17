@@ -1,0 +1,69 @@
+shader raycast(
+    vector Origin = P,       // Camera position in world space
+    vector Direction = N,    // Ray direction in world space
+    vector SurfaceNormal = N,
+    float threshold = 1,
+    float CameraAspect = 1.77778, // width/height ratio (e.g., 16:9)
+    float CameraFOV = 1.0,        // horizontal FOV in radians
+    vector CameraDir = vector(0,0,-1), // Camera look direction in world space
+    vector CameraUp = vector(0,1,0),   // Camera up vector in world space
+    float AngleThreshold = 90.0,  // Maximum angle in degrees between ray and normal
+    float Power = 4.0, // Exponent for weight falloff (higher = sharper)
+    output float Result = 0
+)
+{
+    // Normalize the world-space ray direction.
+    vector d = normalize(Direction);
+    
+    // Build camera basis.
+    vector forward = normalize(CameraDir);
+    vector r = normalize(cross(forward, CameraUp));
+    vector upVector = normalize(cross(r, forward));
+    
+    // Transform the ray direction into the camera's coordinate system.
+    float cam_x = dot(d, r);
+    float cam_y = dot(d, upVector);
+    float cam_z = dot(d, -forward); // should be negative for rays in front of the camera
+    
+    // Only process rays that are in front of the camera.
+    if (cam_z >= 0) {
+        Result = 0;
+        return;
+    }
+    
+    // Compute film extents at a virtual film plane at z = -1.
+    float filmw = tan(CameraFOV * 0.5);
+    float filmh = filmw / CameraAspect;
+    
+    // Project the ray direction onto the film plane.
+    float x_proj = cam_x / -cam_z;
+    float y_proj = cam_y / -cam_z;
+    
+    // If the projected point falls outside the film bounds, exit.
+    if (abs(x_proj) > filmw || abs(y_proj) > filmh) {
+        Result = 0;
+        return;
+    }
+    
+    // Continue with the raycast.
+    float Distance = 99999999.99;
+    if (trace(Origin, d))
+    {
+        getmessage("trace", "hitdist", Distance);
+        if ((Distance + 0.001) < threshold)
+            Result = 0;
+        else {
+            float dot_val = dot(d, normalize(SurfaceNormal));
+            float orthogonality = abs(clamp(dot_val, -1.0, 1.0));
+            float angle = acos(orthogonality) * 180.0 / M_PI;
+            if (angle > AngleThreshold) {
+                Result = 0;
+            } else {
+                Result = pow(orthogonality, Power);
+            }
+        }
+    }
+    else {
+        Result = 0;
+    }
+}
