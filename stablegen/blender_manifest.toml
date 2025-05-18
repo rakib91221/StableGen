@@ -1,23 +1,38 @@
 schema_version = "1.0.0"
 id = "stablegen"
-version = "0.0.1"
+version = "0.0.2"
 name = "StableGen"
-tagline = "Seamless AI Multi-View Texturing Powered by SDXL"
+tagline = "AI-Powered Texturing"
 maintainer = "Ondrej Sakala <sakalaondrej@gmail.com>"
 type = "add-on"
 blender_version_min = "4.2.0"
 
 website = "https://github.com/sakalond/StableGen"
 
-tags = ["Object", "UV", "Mesh", "Material", "Bake", "Render"]
+tags = ["Material", "Paint", "UV"]
 
 license = ["SPDX:GPL-3.0-or-later"]
 
-copyright = [
-"2024 Ondrej Sakala",
-]
 platforms = ["windows-x64", "linux-x64"]
 
 [permissions]
-network = "Connects to ComfyUI server for AI texture generation"
-files = "Saves generated textures and intermediate images to disk"
+network = "Connects to a local ComfyUI server for AI texture generation"
+files = "Saves generated textures, intermediate files, exported GIFs and videos"
+
+wheels = [
+  "./wheels/websocket_client-1.8.0-py3-none-any.whl",
+  "./wheels/websockets-15.0.1-py3-none-any.whl",
+  "./wheels/imageio-2.37.0-py3-none-any.whl",
+
+  # Windows specific
+
+  "./wheels/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl",
+  "./wheels/opencv_python_headless-4.11.0.86-cp37-abi3-win_amd64.whl",
+  "./wheels/pillow-11.2.1-cp311-cp311-win_amd64.whl",
+
+  # Linux specific
+
+  "./wheels/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl",
+  "./wheels/opencv_python_headless-4.11.0.86-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+  "./wheels/pillow-11.2.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+]

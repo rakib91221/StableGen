@@ -172,9 +172,7 @@ class StableGenPanel(bpy.types.Panel):
         if width_mode == 'narrow':
             cam_tools_row = layout.row() 
         cam_tools_row.operator("object.collect_camera_prompts", text="Collect Camera Prompts", icon="FILE_TEXT")
-         
-        if not hasattr(scene, 'generation_status'):
-            scene.generation_status = 'idle'
+        
 
         addon_prefs = context.preferences.addons[__package__].preferences
         config_error_message = None
@@ -195,7 +193,10 @@ class StableGenPanel(bpy.types.Panel):
         else:
             action_row.enabled = True
 
-            if scene.generation_status == 'idle':
+            if not bpy.app.online_access:
+                action_row.operator("object.test_stable", text="Enable online access in preferences", icon="ERROR")
+                action_row.enabled = False
+            elif scene.generation_status == 'idle':
                 action_row.operator("object.test_stable", text="Generate", icon="PLAY")
             elif scene.generation_status == 'running':
                 action_row.operator("object.test_stable", text="Cancel Generation", icon="CANCEL")

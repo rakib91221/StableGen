@@ -9,20 +9,14 @@ import mathutils
 from mathutils import Matrix
 import blf
 from .utils import get_file_path, get_dir_path, remove_empty_dirs
-from .util import install_testing
 import tempfile
 import shutil
-try:
-    import cv2 
-    import imageio
-    import imageio_ffmpeg
-except ImportError or ModuleNotFoundError:
-    install_testing.install()
-    import imageio
-    import imageio_ffmpeg
-    import cv2 
-import urllib.parse
 from PIL import Image
+
+# Import wheels
+import cv2 
+import imageio
+import imageio_ffmpeg
 
 
 def apply_uv_inpaint_texture(context, obj, baked_image_path):

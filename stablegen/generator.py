@@ -13,16 +13,12 @@ import math
 from PIL import Image
 
 from .util.helpers import prompt_text, prompt_text_img2img  # pylint: disable=relative-beyond-top-level
-from .util import install_testing  # pylint: disable=relative-beyond-top-level
 from .render_tools import export_emit_image, export_visibility, export_canny, bake_texture, prepare_baking, unwrap # pylint: disable=relative-beyond-top-level
 from .utils import get_last_material_index, get_generation_dirs, get_file_path, get_dir_path, remove_empty_dirs # pylint: disable=relative-beyond-top-level
 from .project import project_image # pylint: disable=relative-beyond-top-level
 
-try:
-    import websocket
-except ImportError:
-    install_testing.install()
-    import websocket
+# Import wheels
+import websocket
 
 def redraw_ui(context):
     """Redraws the UI to reflect changes in the operator's progress and status."""
@@ -103,6 +99,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         if not os.path.exists(addon_prefs.model_dir):
             return False
         if not addon_prefs.server_address:
+            return False
+        if bpy.app.online_access == False: # Check if online access is disabled
             return False
         return True
 
