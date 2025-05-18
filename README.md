@@ -62,7 +62,7 @@ This showcase demonstrates how StableGen can texture the model using a standard 
 
 | Untextured Model  | Generated | Generated  | Generated (with a reference image) |
 | :------: | :---------: | :----------: | :-----------------: |
-| <img src="docs/img/blank_head.gif" alt="Untextured Anime Head" width="200"> | <img src="docs/img/red_head.gif" alt="Anime head with red hair" width="200">  | <img src="docs/img/head_cyberpunk.gif" alt="Anime head with Cyberpunk style" width="200">   |  <img src="docs/img/head_starry.gif" alt="Anime head with Starry Night style" width="200">   | 
+| <img src="docs/img/head_blank.gif" alt="Untextured Anime Head" width="200"> | <img src="docs/img/head_red.gif" alt="Anime head with red hair" width="200">  | <img src="docs/img/head_cyberpunk.gif" alt="Anime head with Cyberpunk style" width="200">   |  <img src="docs/img/head_starry.gif" alt="Anime head with Starry Night style" width="200">   | 
 | *Base Untextured Model* | <small>Prompt: "anime girl head, red hair"</small>    |   <small>Prompt: "girl head, brown hair, cyberpunk style, realistic"</small>  |   <small>Prompt: "anime girl head, artistic style"<br><em>(Style guided by reference image shown below)</em></small>      |
 <p align="left">
   <img src="docs/img/starry_night_small.jpg" alt="The Starry Night - IPAdapter Reference" width="250">
