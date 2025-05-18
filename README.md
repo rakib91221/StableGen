@@ -169,7 +169,6 @@ The `installer.py` script (found in this repository) automates the download and 
 3.  In Blender, go to `Edit > Preferences > Add-ons > Install...`.
 4.  Navigate to and select the downloaded `StableGen.zip` file.
 5.  Enable the "StableGen" addon (search for "StableGen" and check the box).
-    * *Upon first installation, Blender may freeze for a minute as it will install necessary Python packages (e.g., `websockets`, `imageio`, `opencv-python`).*
 
 ### Step 4: Configure StableGen Plugin in Blender
 
