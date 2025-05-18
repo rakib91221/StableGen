@@ -19,7 +19,7 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
     """     
     Preferences for the StableGen addon.     
     """
-    bl_idname = __name__
+    bl_idname = __package__
 
     model_dir: bpy.props.StringProperty(
         name="Model Directory",
@@ -79,7 +79,7 @@ def update_model_list(self, context):
     :param context: Blender context.         
     :return: List of models.     
     """
-    addon_prefs = context.preferences.addons[__name__].preferences
+    addon_prefs = context.preferences.addons[__package__].preferences
     model_dir = addon_prefs.model_dir
     if os.path.isdir(model_dir):
         models = [f for f in os.listdir(model_dir) if f.endswith('.safetensors')]
@@ -146,7 +146,7 @@ def get_controlnet_models(context, unit_type):
     """
     Get available ControlNet models for a given type.
     """
-    addon_prefs = context.preferences.addons[__name__].preferences
+    addon_prefs = context.preferences.addons[__package__].preferences
     try:
         import json
         mapping = json.loads(addon_prefs.controlnet_mapping)
