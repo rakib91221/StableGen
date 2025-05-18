@@ -1,7 +1,7 @@
 # StableGen: AI-Powered 3D Texturing in Blender ✨
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Blender Version](https://img.shields.io/badge/Blender-4.0%2B-orange.svg)](#system-requirements)
+[![Blender Version](https://img.shields.io/badge/Blender-4.2%2B-orange.svg)](#system-requirements)
 
 **Transform your 3D texturing workflow with the power of generative AI, directly within Blender!**
 
