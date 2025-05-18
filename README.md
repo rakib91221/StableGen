@@ -5,7 +5,7 @@
 
 **Transform your 3D texturing workflow with the power of generative AI, directly within Blender!**
 
-StableGen is an open-source Blender plugin designed to seamlessly integrate advanced diffusion models into your creative process. Generate complex, coherent, and controllable textures for your 3D models and entire scenes using a flexible ComfyUI backend.
+StableGen is an open-source Blender plugin designed to seamlessly integrate advanced diffusion models (SDXL, FLUX.1-dev) into your creative process. Generate complex, coherent, and controllable textures for your 3D models and entire scenes using a flexible ComfyUI backend.
 
 ---
 
@@ -50,7 +50,51 @@ StableGen empowers 3D artists by bringing cutting-edge AI texturing capabilities
 
 See what StableGen can do!
 
-[TODO]
+---
+
+### Showcase 1: Head Model Stylization with IPAdapter
+
+This showcase demonstrates how StableGen can texture the model using a standard prompt and then with style guidance from an IPAdapter image reference.
+
+**3D Model Source:** "Brown" by ucupumar - Available at: [BlendSwap (Blend #15262)](https://www.blendswap.com/blend/15262)
+
+
+
+| Untextured Model  | Generated | Generated  | Generated (with a reference image) |
+| :------: | :---------: | :----------: | :-----------------: |
+| <img src="docs/img/blank_head.gif" alt="Untextured Anime Head" width="200"> | <img src="docs/img/red_head.gif" alt="Anime head with red hair" width="200">  | <img src="docs/img/head_cyberpunk.gif" alt="Anime head with Cyberpunk style" width="200">   |  <img src="docs/img/head_starry.gif" alt="Anime head with Starry Night style" width="200">   | 
+| *Base Untextured Model* | <small>Prompt: "anime girl head, red hair"</small>    |   <small>Prompt: "girl head, brown hair, cyberpunk style, realistic"</small>  |   <small>Prompt: "anime girl head, artistic style"<br><em>(Style guided by reference image shown below)</em></small>      |
+<p align="left">
+  <img src="docs/img/starry_night_small.jpg" alt="The Starry Night - IPAdapter Reference" width="250">
+  <br>
+  <small><em>Reference: "The Starry Night" by Vincent van Gogh (used to guide the "Artistic Style" variant)</em></small>
+</p>
+
+
+### Showcase 2: Car Asset Texturing
+
+This showcase demonstrates how StableGen can texture a car model using different textual prompts implying various visual styles.
+
+**3D Model Source:** "Pontiac GTO 67" by thecali - Available at: [BlendSwap (Blend #13575)](https://www.blendswap.com/blend/13575)
+
+| Untextured Model  | Generated | Generated | Generated |
+| :------: | :---------: | :----------: | :-----------------: |
+| <img src="docs/img/car_blank.gif" alt="Untextured Car" width="200"> | <img src="docs/img/car_green.gif" alt="Green car" width="200">  | <img src="docs/img/car_steampunk.gif" alt="Steampunk style car" width="200">   |  <img src="docs/img/car_black.gif" alt="Stealth black car" width="200">   | 
+| *Base Untextured Model* | <small>Prompt: "green car"</small>    |   <small>Prompt: "steampunk style car"</small>  |   <small>Prompt: "stealth black car"</small>      |
+
+
+### Showcase 3: Subway Scene Asset Texturing
+
+This showcase demonstrates how StableGen can texture a more complex scene consisting of many mesh objects.
+
+**3D Model Source:** "Subway Station Entrance" by argonius - Available at: [BlendSwap (Blend #19305)](https://www.blendswap.com/blend/19305)
+
+| Untextured Scene  | Generated | Generated | Generated |
+| :------: | :---------: | :----------: | :-----------------: |
+| <img src="docs/img/subway_blank.gif" alt="Untextured Subway Scene" width="200"> | <img src="docs/img/subway_default.gif" alt="Subway station" width="200">  | <img src="docs/img/subway_palace.gif" alt="Overgrown fantasy palace interior" width="200">   |  <img src="docs/img/subway_cyberpunk.gif" alt="Cyberpunk subway station" width="200">   | 
+| *Base Untextured Scene* | <small>Prompt: "subway station"</small>    |   <small>Prompt: "an overgrown fantasy palace interior, gold elements"</small>  |   <small>Prompt: "subway station, cyberpunk style, neon lit"</small>      |
+
+---
 
 ## 🛠️ How It Works (A Glimpse)
 
@@ -116,7 +160,7 @@ The `installer.py` script (found in this repository) automates the download and 
     * It will download and place files into the correct subdirectories of `<YourComfyUIDirectory>`.
 4.  **Restart ComfyUI:** If ComfyUI was running, restart it to load new custom nodes.
 
-*(For manual dependency installation, see `docs/MANUAL_INSTALLATION.md`.)*
+*(For manual dependency installation (and for installation of FLUX.1-dev and its dependecies), see `docs/MANUAL_INSTALLATION.md`.)*
 
 ### Step 3: Install StableGen Blender Plugin
 
@@ -150,11 +194,11 @@ Here’s how to get your first texture generated with StableGen:
 3.  **Access StableGen Panel:** Press `N` in the 3D Viewport, go to the "StableGen" tab.
 4.  **Add Cameras (Recommended for Multi-View):**
     * Select your object.
-    * In the StableGen panel, click "**Add Cameras**". Choose "Object" as center type. Adjust interactively if needed, then confirm.
+    * In the StableGen panel, click "**Add Cameras**". Choose `Object` as center type. Adjust interactively if needed, then confirm.
 5.  **Set Basic Parameters:**
     * **Prompt:** Type a description (e.g., "ancient stone wall with moss").
     * **Model:** Select your desired SDXL checkpoint model.
-    * **Generation Mode:** "Sequential" is a good starting point for consistency.
+    * **Generation Mode:** `Sequential` is a good starting point for consistency.
 6.  **Hit Generate!** Click the main "**Generate**" button.
 7.  **Observe:** Watch the progress in the panel and the ComfyUI console. Your object should update with the new texture! Output files will be in your specified "Output Directory".
     * By default, the generated texture will only be visible in the Rendered viewport shading mode (CYCLES Render Engine).
@@ -172,14 +216,14 @@ These are the main operational buttons and initial setup tools, generally found 
 * **Generate / Cancel Generation (Main Button):** This is the primary button to start the AI texture generation process for all visible meshes based on your current settings. It communicates with the ComfyUI backend. While processing, the button changes to "Cancel Generation," allowing you to stop the current task. Progress bars will appear below this button during generation.
 * **Bake Textures:** Converts the dynamic, multi-projection material StableGen creates on your meshes into a single, standard UV-mapped image texture per object. This is essential for exporting or simplifying scenes. You can set the resolution and UV unwrapping method for the bake. This option is crucial for finalizing your AI-generated textures into a portable format.
 * **Add Cameras:** Helps you quickly set up multiple viewpoints. It creates a circular array of Blender cameras around the active object (if "Object" center type is chosen) or the current 3D view center. You can specify the number of cameras and interactively adjust their positions before finalizing.
-* **Collect Camera Prompts:** Cycles through all cameras in your scene, allowing you to type a specific descriptive text prompt for each viewpoint (e.g., "front view," "close-up on face"). These per-camera prompts are used in conjunction with the main prompt if "Use camera prompts" is enabled in "Viewpoint Blending Settings."
+* **Collect Camera Prompts:** Cycles through all cameras in your scene, allowing you to type a specific descriptive text prompt for each viewpoint (e.g., "front view," "close-up on face"). These per-camera prompts are used in conjunction with the main prompt if `Use camera prompts` is enabled in `Viewpoint Blending Settings`.
 
 ### Preset Management
 
 * Located prominently in the UI, this system allows you to:
-    * **Select a Preset:** Choose from built-in configurations (e.g., "Default," "Characters," "Quick Draft") for common scenarios or select "Custom" to use your current settings.
+    * **Select a Preset:** Choose from built-in configurations (e.g., `Default`, `Characters`, `Quick Draft`) for common scenarios or select `Custom` to use your current settings.
     * **Apply Preset:** If you modify a stock preset, this button applies its original values.
-    * **Save Preset:** When your settings are "Custom," this allows you to save your current configuration as a new named preset.
+    * **Save Preset:** When your settings are `Custom`, this allows you to save your current configuration as a new named preset.
     * **Delete Preset:** Removes a selected custom preset.
 
 ### Main Parameters
@@ -226,24 +270,28 @@ Experiment with these settings and tools to achieve a vast range of effects and 
 Encountering issues? Here are some common fixes. Always check the **Blender System Console** (Window > Toggle System Console) AND the **ComfyUI server console** for error messages.
 
 * **StableGen Panel Not Showing:** Ensure the addon is installed and enabled in Blender's preferences.
-* **"Cannot generate..." on Generate Button:** Check Addon Preferences: "Model Directory," "Output Directory," and "Server Address" must be correctly set.
+* **"Cannot generate..." on Generate Button:** Check Addon Preferences: `Model Directory`, `Output Directory`, and `Server Address` must be correctly set.
 * **Connection Issues with ComfyUI:**
     * Make sure your ComfyUI server is running.
-    * Verify the "Server Address" in StableGen preferences.
+    * Verify the `Server Address` in StableGen preferences.
     * Check firewall settings.
 * **Models Not Found (Error in ComfyUI Console):**
     * Run the `installer.py` script.
     * Manually ensure models are in the correct subfolders of `<YourComfyUIDirectory>/models/` (e.g., `checkpoints/`, `controlnet/`, `loras/`, `ipadapter/`, `clip_vision/`).
     * Restart ComfyUI after adding new models or custom nodes.
 * **GPU Out Of Memory (OOM):**
-    * Enable "Auto Rescale Resolution."
+    * Enable `Auto Rescale Resolution` in `Advanced Parameters` > `Output & Material Settings` if disabled.
     * Try lower bake resolutions if baking.
     * Close other GPU-intensive applications.
+* **Textures not visible after generation completes:**
+    * Switch to Rendered viewport shading (top right corner, fourth "sphere" icon)
+* **Textures not affected by your lighting setup:**
+    * Enable `Apply BSDF` in `Advanced Parameters > Output & Material Settings` and regenerate.
 * **Poor Texture Quality/Artifacts:**
     * Try using the provided presets.
     * Adjust prompts and negative prompts.
     * Experiment with different Generation Modes. `Sequential` with IPAdapter is often good for consistency.
-    * Ensure adequate camera coverage and appropriate "Discard-Over Angle."
+    * Ensure adequate camera coverage and appropriate `Discard-Over Angle`.
     * Fine-tune ControlNet strength. Too low might ignore geometry; too high might yield flat results.
     * For `Sequential` mode, check inpainting and visibility mask settings.
 * **All Visible Meshes Textured:** StableGen textures all visible mesh objects. Hide objects (for rendering) you don't want processed.
@@ -258,7 +306,7 @@ We welcome contributions! Whether it's bug reports, feature suggestions, code co
 
 ## 📜 License
 
-StableGen is released under the **GNU General Public License v3.0**. See the `LICENSE.txt` file for details.
+StableGen is released under the **GNU General Public License v3.0**. See the `LICENSE` file for details.
 
 ---
 
@@ -266,7 +314,7 @@ StableGen is released under the **GNU General Public License v3.0**. See the `LI
 
 StableGen builds upon the fantastic work of many individuals and communities. Our sincere thanks go to:
 
-* **Academic Roots:** This plugin originated as a Bachelor's Thesis by Ondřej Sakala at the Czech Technical University in Prague (Faculty of Information Technology), supervised by Ing. Radek Richtr, Ph.D.
+* **Academic Roots:** This plugin originated as a Bachelor's Thesis by Ondřej Sakala at the Czech Technical University in Prague (Faculty of Information Technology), supervised by Ing. Radek Richtr, Ph.D. A preprint of the thesis document is available in the `docs/thesis` directory of this repository.
 * **Core Technologies & Communities:**
     * **ComfyUI** by ComfyAnonymous ([GitHub](https://github.com/comfyanonymous/ComfyUI)) for the powerful and flexible backend.
     * The **Blender Foundation** and its community for the amazing open-source 3D creation suite.
