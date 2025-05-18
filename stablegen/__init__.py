@@ -272,7 +272,7 @@ def register():
     bpy.types.Scene.comfyui_prompt = bpy.props.StringProperty(
         name="ComfyUI Prompt",
         description="Enter the text prompt for ComfyUI generation",
-        default="a monkey",
+        default="gold cube",
         update=update_parameters
     )
     bpy.types.Scene.comfyui_negative_prompt = bpy.props.StringProperty(
@@ -439,7 +439,7 @@ def register():
     bpy.types.Scene.sequential_ipadapter_regenerate = bpy.props.BoolProperty(
         name="Regenerate IPAdapter",
         description="IPAdapter generations may differ from the original image. This option regenerates the first viewpoint with IPAdapter to match the rest of the images.",
-        default=True,
+        default=False,
         update=update_parameters
     )
     bpy.types.Scene.sequential_ipadapter_regenerate_wo_controlnet = bpy.props.BoolProperty(
@@ -539,6 +539,7 @@ def register():
         items=[
             ('idle', 'Idle', ''),
             ('running', 'Running', ''),
+            ('waiting', 'Waiting for cancel', ''),
             ('error', 'Error', '')
         ],
         default='idle',
@@ -856,12 +857,10 @@ def register():
         description="""Apply the BSDF shader to the material
     - when set to FALSE, the material will be emissive and will not be affected by the scene lighting
     - when set to TRUE, the material will be affected by the scene lighting""",
-        default=True,
+        default=False,
         update=update_parameters
     )
     
-    
-
     # IPADAPTER parameters
 
 

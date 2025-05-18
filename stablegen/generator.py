@@ -89,7 +89,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         operator = None
         for window in context.window_manager.windows:
                 for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts':
+                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or context.scene.generation_status == 'waiting':
                         operator = op
                         break
                 if operator:
@@ -419,7 +419,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         client_id = str(uuid.uuid4())
         data = json.dumps({"client_id": client_id}).encode('utf-8')
         req =  urllib.request.Request("http://{}/interrupt".format(server_address), data=data)
-        context.scene.generation_status = 'idle'
+        context.scene.generation_status = 'waiting'
         ComfyUIGenerate._is_running = False
         urllib.request.urlopen(req)
         remove_empty_dirs(context)
@@ -741,7 +741,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['sampler']]["inputs"]["scheduler"] = context.scene.scheduler
         
         # Set clip skip
-        prompt[NODES['clip_skip']]["stop_at_clip_layer"] = -context.scene.clip_skip
+        prompt[NODES['clip_skip']]["inputs"]["stop_at_clip_layer"] = -context.scene.clip_skip
         
         # Set LoRA parameters
         self._configure_lora(prompt, context, NODES['lora'])
@@ -1035,7 +1035,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             prompt[NODES['sampler']]["inputs"]["denoise"] = 1.0
         
         # Set clip skip
-        prompt[NODES['clip_skip']]["stop_at_clip_layer"] = -context.scene.clip_skip
+        prompt[NODES['clip_skip']]["inputs"]["stop_at_clip_layer"] = -context.scene.clip_skip
         
         # Set upscale method and dimensions
         prompt[NODES['upscale_grid']]["inputs"]["upscale_method"] = context.scene.refine_upscale_method
