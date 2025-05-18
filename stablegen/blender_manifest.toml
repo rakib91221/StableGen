@@ -9,7 +9,7 @@ blender_version_min = "4.2.0"
 
 website = "https://github.com/sakalond/StableGen"
 
-tags = ["object", "texturing", "texture", "stable diffusion", "AI", "generative art", "render"]
+tags = ["Object", "UV", "Mesh", "Material", "Bake", "Render"]
 
 license = ["SPDX:GPL-3.0-or-later"]
 
@@ -20,4 +20,4 @@ platforms = ["windows-x64", "linux-x64"]
 
 [permissions]
 network = "Connects to ComfyUI server for AI texture generation"
-files = "Load AI models and save generated textures and intermediate images to disk"
+files = "Saves generated textures and intermediate images to disk"
