@@ -179,6 +179,7 @@ The `installer.py` script (found in this repository) automates the download and 
     * **Output Directory:** Choose a folder where StableGen will save generated images.
     * **Server Address:** Ensure this matches your ComfyUI server (default `http://127.0.0.1:8188`).
     * Review **ControlNet Mapping** if using custom named ControlNet models.
+4.  Enable online access in Blender if not enabled already. Select from the topbar of Blender `Edit -> Preferences`. Then navigate to `System -> Network` and check the box `Enable Online Access`. While StableGen does not require internet access, this is added to respect Blender add-on guidelines, as there are still network calls being made locally.
 
 ---
 
