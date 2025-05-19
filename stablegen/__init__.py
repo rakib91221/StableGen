@@ -15,6 +15,11 @@ bl_info = {
     'blender': (4, 2, 0)
 }
 
+def update_model_dir(self, context): # Combined with load_handler to load controlnet unit on first setup
+    update_parameters(self, context)
+    load_handler(None)
+    return None
+
 class StableGenAddonPreferences(bpy.types.AddonPreferences):
     """     
     Preferences for the StableGen addon.     
@@ -26,7 +31,7 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         description="Directory containing SD models",
         default="",
         subtype='DIR_PATH',
-        update=update_parameters
+        update=update_model_dir,
     ) # type: ignore
 
     server_address: bpy.props.StringProperty(
@@ -92,6 +97,11 @@ def update_union(self, context):
     else:
         self.is_union = False
 
+def update_controlnet(self, context):
+    update_parameters(self, context)
+    update_union(self, context)
+    return None
+
 class ControlNetUnit(bpy.types.PropertyGroup):
     unit_type: bpy.props.StringProperty(
         name="Type",
@@ -103,7 +113,7 @@ class ControlNetUnit(bpy.types.PropertyGroup):
         name="Model",
         description="Select the ControlNet model",
         items=lambda self, context: get_controlnet_models(context, self.unit_type),
-        update=lambda self, context: (update_parameters(self, context), update_union(self, context) ),
+        update=update_controlnet
     ) # type: ignore
     strength: bpy.props.FloatProperty(
         name="Strength",
@@ -247,10 +257,11 @@ class RemoveControlNetUnit(bpy.types.Operator):
 # load handler to set default ControlNet unit
 @persistent
 def load_handler(dummy):
-    scene = bpy.context.scene
-    if not scene.controlnet_units:
-        default_unit = scene.controlnet_units.add()
-        default_unit.unit_type = 'depth'
+    if bpy.context.scene:
+        scene = bpy.context.scene
+        if hasattr(scene, "controlnet_units") and not scene.controlnet_units:
+            default_unit = scene.controlnet_units.add()
+            default_unit.unit_type = 'depth'
 
 def register():
     """     
@@ -868,12 +879,11 @@ def register():
     bpy.utils.register_class(AddControlNetUnit)
     bpy.utils.register_class(RemoveControlNetUnit)
     bpy.types.Scene.controlnet_units_index = bpy.props.IntProperty(default=0)
-    bpy.app.handlers.load_post.append(load_handler)
     bpy.utils.register_class(ApplyPreset)
     bpy.utils.register_class(SavePreset)
     bpy.utils.register_class(DeletePreset) 
     bpy.utils.register_class(ExportOrbitGIF)
-
+    bpy.app.handlers.load_post.append(load_handler)
 
 def unregister():   
     """     

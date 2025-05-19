@@ -5,7 +5,7 @@ import numpy as np
 import uuid
 import json
 import urllib.request
-import urllib.parse
+import socket
 import threading
 from datetime import datetime
 
@@ -500,9 +500,8 @@ class ComfyUIGenerate(bpy.types.Operator):
                         else:
                             image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
 
-                    if image == {"error": "conn_refused"}:
-                        self._error = "Failed to connect to ComfyUI server."
-                        return
+                    if image == {"error": "conn_failed"}:
+                        return # Error message already set
                     
                     # Save the generated image using new path structure
                     if context.scene.generation_method == 'uv_inpaint':
@@ -594,7 +593,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                             else:
                                 image = self.refine(context, depth_path=refine_depth_path, canny_path=refine_canny_path, normal_path=refine_normal_path, render_path=refine_render_path)
 
-                            if image == {"error": "conn_refused"}:
+                            if image == {"error": "conn_failed"}:
                                 self._error = "Failed to connect to ComfyUI server."
                                 return
                             # Overwrite the split image with the refined one
@@ -671,12 +670,20 @@ class ComfyUIGenerate(bpy.types.Operator):
         self._save_prompt_to_file(prompt, revision_dir)
         
         # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
         try:
-            ws = self._connect_to_websocket(server_address, client_id)
             images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
-            ws.close()
-        except ConnectionRefusedError:
-            return {"error": "conn_refused"}
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
         
         print(f"Image generated with prompt: {context.scene.comfyui_prompt}")
         
@@ -838,9 +845,26 @@ class ComfyUIGenerate(bpy.types.Operator):
             ws = websocket.WebSocket()
             ws.connect(f"ws://{server_address}/ws?clientId={client_id}")
             return ws
-        except Exception as e:
-            print(f"WebSocket connection failed: {str(e)}")
-            raise
+        except ConnectionRefusedError:
+            self._error = f"Connection to ComfyUI WebSocket was refused at {server_address}. Is ComfyUI running and accessible?"
+            return None
+        except (socket.gaierror, websocket.WebSocketAddressException): # Catch getaddrinfo errors specifically
+            self._error = f"Could not resolve ComfyUI server address: '{server_address}'. Please check the hostname/IP and port in preferences and your network settings."
+            return None
+        except websocket.WebSocketTimeoutException:
+            self._error = f"Connection to ComfyUI WebSocket timed out at {server_address}."
+            return None
+        except websocket.WebSocketBadStatusException as e: # More specific catch for handshake errors
+            # e.status_code will be 404 in this case
+            if e.status_code == 404:
+                self._error = (f"ComfyUI endpoint not found at {server_address} (404 Not Found).")
+            else:
+                self._error = (f"WebSocket handshake failed with ComfyUI server at {server_address}. "
+                            f"Status: {e.status_code}. The server might not be a ComfyUI instance or is misconfigured.")
+            return None
+        except Exception as e: # Catch-all for truly unexpected issues during connect
+            self._error = f"An unexpected error occurred connecting WebSocket: {e}"
+            return None
 
     def _execute_prompt_and_get_images(self, ws, prompt, client_id, server_address, NODES):
         """Executes the prompt and collects generated images."""
@@ -941,13 +965,20 @@ class ComfyUIGenerate(bpy.types.Operator):
             json.dump(prompt, f)
         
         # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
         try:
-            ws = websocket.WebSocket()
-            ws.connect(f"ws://{server_address}/ws?clientId={client_id}")
-            images = self._refine_get_images(ws, prompt, client_id, server_address, NODES)
-            ws.close()
-        except ConnectionRefusedError:
-            return {"error": "conn_refused"}
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
         
         print(f"Image refined with prompt: {context.scene.refine_prompt if context.scene.refine_prompt else context.scene.comfyui_prompt}")
         
@@ -1206,41 +1237,6 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['sampler']]["inputs"]["negative"] = [final, 1]
         
         return prompt
-
-    def _refine_get_images(self, ws, prompt, client_id, server_address, NODES):
-        """Executes the refinement prompt and collects the results."""
-        # Queue the prompt
-        prompt_id = self._queue_prompt(prompt, client_id, server_address)
-        
-        # Process WebSocket messages
-        output_images = {}
-        current_node = ""
-        
-        while True:
-            out = ws.recv()
-            if isinstance(out, str):
-                message = json.loads(out)
-                
-                if message['type'] == 'executing':
-                    data = message['data']
-                    if data['prompt_id'] == prompt_id:
-                        if data['node'] is None:
-                            break  # Execution complete
-                        else:
-                            current_node = data['node']
-                
-                elif message['type'] == 'progress':
-                    progress = (message['data']['value'] / message['data']['max']) * 100
-                    if progress != 0:
-                        self._progress = progress  # Update progress for UI
-            else:
-                # Binary data (image)
-                if current_node == NODES['save_image']:  # Save image node
-                    images_output = output_images.get(current_node, [])
-                    images_output.append(out[8:])  # Skip header bytes
-                    output_images[current_node] = images_output
-        
-        return output_images
     
     def export_depthmap(self, context, camera_id=None):
         """     
@@ -1599,13 +1595,25 @@ class ComfyUIGenerate(bpy.types.Operator):
         except Exception as e:
             print(f"Failed to save flux prompt: {e}")
         # Execute generation via websocket.
+
+        # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
         try:
-            ws = self._connect_to_websocket(server_address, client_id)
             images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
-            ws.close()
-        except ConnectionRefusedError:
-            return {"error": "conn_refused"}
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
+        
         print(f"Flux image generated with prompt: {context.scene.comfyui_prompt}")
+
         return images[NODES['save_image']][0]
 
     def _create_img2img_base_prompt_flux(self, context):
@@ -1734,12 +1742,20 @@ class ComfyUIGenerate(bpy.types.Operator):
             json.dump(prompt, f)
         
         # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
         try:
-            ws = self._connect_to_websocket(server_address, client_id)
             images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
-            ws.close()
-        except ConnectionRefusedError:
-            return {"error": "conn_refused"}
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
         
         print(f"Image refined with Flux using prompt: {context.scene.comfyui_prompt}")
         
