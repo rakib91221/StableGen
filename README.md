@@ -130,7 +130,7 @@ StableGen relies on a working ComfyUI installation as its backend.
 1.  If you don't have ComfyUI, please follow the **official ComfyUI installation guide**: [https://github.com/comfyanonymous/ComfyUI#installing](https://github.com/comfyanonymous/ComfyUI#installing).
     * Install ComfyUI in a dedicated directory. We'll refer to this as `<YourComfyUIDirectory>`.
     * Ensure you can run ComfyUI and it's functioning correctly before proceeding.
-    * Remote ComfyUI instances are not currently supported.
+    * Remote ComfyUI instances are not currently supported. This includes ComfyUI installations running on a different machine or in a virtual machine (including WSL).
 
 ### Step 2: Install Dependencies (Custom Nodes & AI Models) - Automated (Recommended)
 
