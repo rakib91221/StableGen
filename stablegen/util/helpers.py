@@ -117,25 +117,6 @@ prompt_text = """
                     "title": "SaveImageWebsocket"
                 }
             },
-            "26": {
-                "inputs": {
-                    "lora_name": "sdxl_lightning_8step_lora.safetensors",
-                    "strength_model": 1,
-                    "strength_clip": 1,
-                    "model": [
-                        "6",
-                        0
-                    ],
-                    "clip": [
-                        "6",
-                        1
-                    ]
-                },
-                "class_type": "LoraLoader",
-                "_meta": {
-                    "title": "Load LoRA"
-                }
-            },
             "27": {
                 "inputs": {
                     "image": "",
@@ -163,7 +144,7 @@ prompt_text = """
                 "inputs": {
                   "stop_at_clip_layer": -1,
                   "clip": [
-                    "26",
+                    "",
                     1
                   ]
                 },
@@ -176,7 +157,7 @@ prompt_text = """
               "inputs": {
                 "preset": "PLUS (high strength)",
                 "model": [
-                  "26",
+                  "",
                   0
                 ]
               },
@@ -290,25 +271,6 @@ prompt_text_img2img = """
       "title": "Convert Image to Mask"
     }
   },
-  "37": {
-    "inputs": {
-      "lora_name": "sdxl_lightning_8step_lora.safetensors",
-      "strength_model": 1,
-      "strength_clip": 1,
-      "model": [
-        "38",
-        0
-      ],
-      "clip": [
-        "38",
-        1
-      ]
-    },
-    "class_type": "LoraLoader",
-    "_meta": {
-      "title": "Load LoRA"
-    }
-  },
   "38": {
     "inputs": {
       "ckpt_name": "realvisxlV40_v40Bakedvae.safetensors"
@@ -353,7 +315,7 @@ prompt_text_img2img = """
       "scheduler": "sgm_uniform",
       "denoise": 0.5,
       "model": [
-        "37",
+        "",
         0
       ],
       "positive": [
@@ -539,7 +501,7 @@ prompt_text_img2img = """
   "229": {
     "inputs": {
       "model": [
-        "37",
+        "",
         0
       ]
     },
@@ -552,7 +514,7 @@ prompt_text_img2img = """
     "inputs": {
       "preset": "PLUS (high strength)",
       "model": [
-        "37",
+        "",
         0
       ]
     },
@@ -608,7 +570,7 @@ prompt_text_img2img = """
     "inputs": {
       "stop_at_clip_layer": -1,
       "clip": [
-        "37",
+        "",
         1
       ]
     },

@@ -662,6 +662,11 @@ class ComfyUIGenerate(bpy.types.Operator):
         if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
             # Configure IPAdapter settings
             self._configure_ipadapter(prompt, context, NODES)
+        else:
+            # Remove IPAdapter nodes if not used
+            for node_id in ['235', '236', '237']:
+                if node_id in prompt:
+                    del prompt[node_id]
         
         # Build controlnet chain
         prompt = self._build_controlnet_chain(prompt, context, depth_path, canny_path, normal_path, NODES)
@@ -710,7 +715,6 @@ class ComfyUIGenerate(bpy.types.Operator):
             
             # Model Loading
             'checkpoint': "6",
-            'lora': "26",
             
             # Latent Space
             'latent': "16",
@@ -719,6 +723,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             'save_image': "25",
 
             # IPAdapter
+            'ipadapter_loader': "235",
             'ipadapter': "236",
             'ipadapter_image': "237",
         }
@@ -748,31 +753,34 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Set clip skip
         prompt[NODES['clip_skip']]["inputs"]["stop_at_clip_layer"] = -context.scene.clip_skip
         
-        # Set LoRA parameters
-        self._configure_lora(prompt, context, NODES['lora'])
-        
         # Set the model name
         prompt[NODES['checkpoint']]["inputs"]["ckpt_name"] = context.scene.model_name
-        
-        return prompt, NODES
 
-    def _configure_lora(self, prompt, context, lora_node):
-        """Configures the LoRA settings based on user selection."""
-        lora_mapping = {
-            'hyper_8step': "Hyper-SDXL-8steps-lora.safetensors",
-            'lightning_8step': "sdxl_lightning_8step_lora.safetensors",
-            'hyper_4step': "Hyper-SDXL-4steps-lora.safetensors",
-            'lightning_4step': "sdxl_lightning_4step_lora.safetensors",
-            'hyper_1step': "Hyper-SDXL-1step-lora.safetensors",
-            'lightning_2step': "sdxl_lightning_2step_lora.safetensors"
-        }
-        
-        if context.scene.lora_type in lora_mapping:
-            prompt[lora_node]["inputs"]["lora_name"] = lora_mapping[context.scene.lora_type]
-        else:
-            # Disable LoRA if not selected
-            prompt[lora_node]["inputs"]["strength_model"] = 0
-            prompt[lora_node]["inputs"]["strength_clip"] = 0
+        # Build LoRA chain
+        initial_model_input_lora = [NODES['checkpoint'], 0]
+        initial_clip_input_lora = [NODES['checkpoint'], 1]
+
+        prompt, final_lora_model_out, final_lora_clip_out = self._build_lora_chain(
+            prompt, context,
+            initial_model_input_lora, initial_clip_input_lora,
+            start_node_id=400 # Starting node ID for LoRA chain
+        )
+
+        current_model_out = final_lora_model_out
+
+        # Set the input for the clip skip node
+        prompt[NODES['clip_skip']]["inputs"]["clip"] = final_lora_clip_out
+
+        # If using IPAdapter, set the model input
+        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+            # Set the model input for IPAdapter
+            prompt[NODES['ipadapter_loader']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['ipadapter'], 0]
+
+        # Set the model for sampler node
+        prompt[NODES['sampler']]["inputs"]["model"] = current_model_out
+
+        return prompt, NODES
 
     def _configure_resolution(self, prompt, context, NODES):
         """Sets the generation resolution based on mode."""
@@ -817,10 +825,150 @@ class ComfyUIGenerate(bpy.types.Operator):
         }
         prompt[NODES['ipadapter']]["inputs"]["weight_type"] = weight_type_mapping.get(context.scene.ipadapter_weight_type, "standard")
 
+    def _build_controlnet_chain_extended(self, context, base_prompt, pos_input, neg_input, vae_input, image_dict):
+        """
+        Builds a chain of ControlNet units dynamically based on scene settings.
+
+        Args:
+            context: Blender context, used to access addon preferences and scene data.
+            base_prompt (dict): The ComfyUI prompt dictionary to be modified.
+            pos_input (list): The [node_id, output_idx] for the initial positive conditioning.
+            neg_input (list): The [node_id, output_idx] for the initial negative conditioning.
+            vae_input (list): The [node_id, output_idx] for the VAE, used by ControlNetApplyAdvanced.
+                              Typically, this is [checkpoint_node_id, 2] for SDXL or 
+                              [checkpoint_node_id, 0] for some VAE loaders.
+            image_dict (dict): A dictionary mapping ControlNet types (e.g., "depth", 
+                               "canny") to their corresponding image file paths.
+
+        Returns:
+            tuple: (modified_prompt, final_positive_conditioning, final_negative_conditioning)
+        """
+        addon_prefs = context.preferences.addons[__package__].preferences
+        try:
+            mapping = json.loads(addon_prefs.controlnet_mapping)
+        except Exception:
+            mapping = {}
+        
+        # Get the dynamic collection of ControlNet units
+        controlnet_units = getattr(context.scene, "controlnet_units", [])
+        current_pos = pos_input
+        current_neg = neg_input
+        for idx, unit in enumerate(controlnet_units):
+            # Generate unique keys for nodes in this chain unit.
+            load_key = str(200 + idx * 3)       # LoadImage node
+            loader_key = str(200 + idx * 3 + 1)   # ControlNetLoader node
+            apply_key = str(200 + idx * 3 + 2)    # ControlNetApplyAdvanced node
+
+            # Create the LoadImage node.
+            base_prompt[load_key] = {
+                "inputs": {
+                    "image": image_dict.get(unit.unit_type, ""),
+                    "upload": "image"
+                },
+                "class_type": "LoadImage",
+                "_meta": {
+                    "title": f"Load Image ({unit.unit_type})"
+                }
+            }
+            # Create the ControlNetLoader node.
+            base_prompt[loader_key] = {
+                "inputs": {
+                    "control_net_name": unit.model_name  # updated to use selected property
+                },
+                "class_type": "ControlNetLoader",
+                "_meta": {
+                    "title": f"Load ControlNet ({unit.unit_type})"
+                }
+            }
+            # Create the ControlNetApplyAdvanced node.
+            base_prompt[apply_key] = {
+                "inputs": {
+                    "strength": unit.strength,
+                    "start_percent": unit.start_percent,
+                    "end_percent": unit.end_percent,
+                    "positive": [current_pos, 0],
+                    "negative": [current_neg, 1] if (idx > 0 or current_neg == "228" or current_neg == "51") else [current_neg, 0],
+                    "control_net": [loader_key, 0],
+                    "image": [load_key, 0],
+                    "vae": [vae_input, 2] if context.scene.model_architecture == "sdxl" else [vae_input, 0],
+                },
+                "class_type": "ControlNetApplyAdvanced",
+                "_meta": {
+                    "title": f"Apply ControlNet ({unit.unit_type})"
+                }
+            }
+            # Update chain inputs: the output of this apply node becomes the new input.
+            current_pos = apply_key
+            current_neg = apply_key
+            # If the controlnet is of the union type, connect the ControlNetApplyAdvanced input into the SetUnionControlNetType node (239)
+            if unit.is_union and unit.use_union_type: 
+                base_prompt[apply_key]["inputs"]["control_net"] = ["239", 0]
+                base_prompt["239"]["inputs"]["control_net"] = [loader_key, 0]
+                if unit.unit_type == "depth":
+                    base_prompt["239"]["inputs"]["type"] = "depth" 
+                elif unit.unit_type == "canny":
+                    base_prompt["239"]["inputs"]["type"] = "canny/lineart/anime_lineart/mlsd"
+                elif unit.unit_type == "normal":
+                    base_prompt["239"]["inputs"]["type"] = "normal"
+            else:
+                # Remove the node
+                if "239" in base_prompt:
+                    del base_prompt["239"]
+
+        return base_prompt, current_pos
+    
+    def _build_lora_chain(self, prompt, context, initial_model_input, initial_clip_input, start_node_id=300):
+        """
+        Builds a chain of LoRA loaders dynamically.
+
+        Args:
+            prompt (dict): The ComfyUI prompt dictionary to modify.
+            context: Blender context.
+            initial_model_input (list): The [node_id, output_idx] for the initial model.
+            initial_clip_input (list): The [node_id, output_idx] for the initial CLIP.
+            start_node_id (int): The starting integer for generating unique LoRA node IDs.
+
+        Returns:
+            tuple: (modified_prompt, final_model_output, final_clip_output)
+                   The final model and CLIP outputs are [node_id, output_idx] lists.
+        """
+        scene = context.scene
+        
+        current_model_out = initial_model_input
+        current_clip_out = initial_clip_input
+
+        if not scene.lora_units:
+            return prompt, current_model_out, current_clip_out
+
+        for i, lora_unit in enumerate(scene.lora_units):
+            if not lora_unit.model_name or lora_unit.model_name == "NONE":
+                continue # Skip if no LoRA model is selected for this unit
+
+            lora_node_id_str = str(start_node_id + i)
+            
+            prompt[lora_node_id_str] = {
+                "inputs": {
+                    "lora_name": lora_unit.model_name,
+                    "strength_model": lora_unit.model_strength,
+                    "strength_clip": lora_unit.clip_strength,
+                    "model": current_model_out, # Connect to previous LoRA or initial model
+                    "clip": current_clip_out    # Connect to previous LoRA or initial CLIP
+                },
+                "class_type": "LoraLoader",
+                "_meta": {
+                    "title": f"Load LoRA {i+1} ({lora_unit.model_name[:20]})"
+                }
+            }
+            # Update outputs for the next LoRA in the chain
+            current_model_out = [lora_node_id_str, 0]
+            current_clip_out = [lora_node_id_str, 1]
+            
+        return prompt, current_model_out, current_clip_out
+
     def _build_controlnet_chain(self, prompt, context, depth_path, canny_path, normal_path, NODES):
         """Builds the ControlNet processing chain."""
         # Build controlnet chain with guidance images
-        prompt, final_node = build_controlnet_chain_extended(
+        prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, NODES['pos_prompt'], NODES['neg_prompt'], NODES['checkpoint'],
             {"depth": depth_path, "canny": canny_path, "normal": normal_path}
         )
@@ -945,6 +1093,11 @@ class ComfyUIGenerate(bpy.types.Operator):
         if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
             # Configure IPAdapter settings
             self._configure_ipadapter_refine(prompt, context, NODES)
+        else:
+            # Remove IPAdapter nodes if not used
+            for node_id in ["235", "236", "237"]:
+                if node_id in prompt:
+                    del prompt[node_id]
         
         # Set up image inputs for different controlnet types
         self._refine_configure_images(prompt, depth_path, canny_path, normal_path, render_path, NODES)
@@ -1003,7 +1156,6 @@ class ComfyUIGenerate(bpy.types.Operator):
             
             # Model Loading
             'checkpoint': "38",
-            'lora': "37",
             
             # Image Processing
             'upscale_grid': "118",
@@ -1025,6 +1177,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             
             # Advanced Features
             'differential_diffusion': "229",
+            'ipadapter_loader': "235",
             'ipadapter': "236",
             'ipadapter_image': "237",
             
@@ -1077,28 +1230,36 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Set the model name
         prompt[NODES['checkpoint']]["inputs"]["ckpt_name"] = context.scene.model_name
         
-        # Configure LoRA
-        self._configure_lora_for_refinement(prompt, context, NODES['lora'])
-        
-        return prompt, NODES
+        # Build LoRA chain
+        initial_model_input_lora = [NODES['checkpoint'], 0]
+        initial_clip_input_lora = [NODES['checkpoint'], 1]
 
-    def _configure_lora_for_refinement(self, prompt, context, lora_node):
-        """Configures the LoRA settings for the refinement process."""
-        lora_mapping = {
-            'hyper_8step': "Hyper-SDXL-8steps-lora.safetensors",
-            'lightning_8step': "sdxl_lightning_8step_lora.safetensors",
-            'hyper_4step': "Hyper-SDXL-4steps-lora.safetensors",
-            'lightning_4step': "sdxl_lightning_4step_lora.safetensors",
-            'hyper_1step': "Hyper-SDXL-1step-lora.safetensors",
-            'lightning_2step': "sdxl_lightning_2step_lora.safetensors"
-        }
-        
-        if context.scene.lora_type in lora_mapping:
-            prompt[lora_node]["inputs"]["lora_name"] = lora_mapping[context.scene.lora_type]
-        else:
-            # Disable LoRA if not selected
-            prompt[lora_node]["inputs"]["strength_model"] = 0
-            prompt[lora_node]["inputs"]["strength_clip"] = 0
+        prompt, final_lora_model_out, final_lora_clip_out = self._build_lora_chain(
+            prompt, context,
+            initial_model_input_lora, initial_clip_input_lora,
+            start_node_id=400 # Starting node ID for LoRA chain
+        )
+
+        current_model_out = final_lora_model_out
+
+        # Set the input for the clip skip node
+        prompt[NODES['clip_skip']]["inputs"]["clip"] = final_lora_clip_out
+
+        # If using IPAdapter, set the model input
+        if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
+            # Set the model input for IPAdapter
+            prompt[NODES['ipadapter_loader']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['ipadapter'], 0]
+
+        if context.scene.differential_diffusion and NODES['differential_diffusion'] in prompt and not context.scene.generation_method == 'refine':
+            # Set model input for differential diffusion
+            prompt[NODES['differential_diffusion']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['differential_diffusion'], 0]
+
+        # Set the model for sampler node
+        prompt[NODES['sampler']]["inputs"]["model"] = current_model_out
+
+        return prompt, NODES
 
     def _configure_refinement_mode(self, prompt, context, render_path, mask_path, NODES):
         """Configures the prompt based on the specific refinement mode."""
@@ -1227,7 +1388,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         vae_input = NODES['checkpoint']
         
         # Build the ControlNet chain
-        prompt, final = build_controlnet_chain_extended(
+        prompt, final = self._build_controlnet_chain_extended(
             context, prompt, pos_input, neg_input, vae_input, 
             {"depth": depth_path, "canny": canny_path, "normal": normal_path}
         )
@@ -1581,7 +1742,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         self._configure_resolution(prompt, context, NODES)
 
-        prompt, final_node = build_controlnet_chain_extended(
+        prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
             {"depth": depth_path, "canny": canny_path, "normal": normal_path}
         )
@@ -1860,83 +2021,10 @@ class ComfyUIGenerate(bpy.types.Operator):
         """Builds the ControlNet chain for refinement process with Flux."""
         input = NODES['pos_prompt'] if not context.scene.differential_diffusion else NODES['inpaint_conditioning']
         # For Flux, the controlnet chain connects to the guidance node
-        prompt, final_node = build_controlnet_chain_extended(
+        prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, input, input, NODES['vae_loader'],
             {"depth": depth_path, "canny": canny_path, "normal": normal_path}
         )
         # Connect final node to FluxGuidance conditioning input
         prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
         return prompt
-
-import json  # ensure json is imported
-
-def build_controlnet_chain_extended(context, base_prompt, pos_input, neg_input, vae_input, image_dict):
-    addon_prefs = context.preferences.addons[__package__].preferences
-    try:
-        mapping = json.loads(addon_prefs.controlnet_mapping)
-    except Exception:
-        mapping = {}
-    
-    # Get the dynamic collection of ControlNet units
-    controlnet_units = getattr(context.scene, "controlnet_units", [])
-    current_pos = pos_input
-    current_neg = neg_input
-    for idx, unit in enumerate(controlnet_units):
-        # Generate unique keys for nodes in this chain unit.
-        load_key = str(200 + idx * 3)       # LoadImage node
-        loader_key = str(200 + idx * 3 + 1)   # ControlNetLoader node
-        apply_key = str(200 + idx * 3 + 2)    # ControlNetApplyAdvanced node
-
-        # Create the LoadImage node.
-        base_prompt[load_key] = {
-            "inputs": {
-                "image": image_dict.get(unit.unit_type, ""),
-                "upload": "image"
-            },
-            "class_type": "LoadImage",
-            "_meta": {
-                "title": f"Load Image ({unit.unit_type})"
-            }
-        }
-        # Create the ControlNetLoader node.
-        base_prompt[loader_key] = {
-            "inputs": {
-                "control_net_name": unit.model_name  # updated to use selected property
-            },
-            "class_type": "ControlNetLoader",
-            "_meta": {
-                "title": f"Load ControlNet ({unit.unit_type})"
-            }
-        }
-        # Create the ControlNetApplyAdvanced node.
-        base_prompt[apply_key] = {
-            "inputs": {
-                "strength": unit.strength,
-                "start_percent": unit.start_percent,
-                "end_percent": unit.end_percent,
-                "positive": [current_pos, 0],
-                "negative": [current_neg, 1] if (idx > 0 or current_neg == "228" or current_neg == "51") else [current_neg, 0],
-                "control_net": [loader_key, 0],
-                "image": [load_key, 0],
-                "vae": [vae_input, 2] if context.scene.model_architecture == "sdxl" else [vae_input, 0],
-            },
-            "class_type": "ControlNetApplyAdvanced",
-            "_meta": {
-                "title": f"Apply ControlNet ({unit.unit_type})"
-            }
-        }
-        # Update chain inputs: the output of this apply node becomes the new input.
-        current_pos = apply_key
-        current_neg = apply_key
-        # If the controlnet is of the union type, connect the ControlNetApplyAdvanced input into the SetUnionControlNetType node (239)
-        if unit.is_union and unit.use_union_type: 
-            base_prompt[apply_key]["inputs"]["control_net"] = ["239", 0]
-            base_prompt["239"]["inputs"]["control_net"] = [loader_key, 0]
-            if unit.unit_type == "depth":
-                base_prompt["239"]["inputs"]["type"] = "depth" 
-            elif unit.unit_type == "canny":
-                base_prompt["239"]["inputs"]["type"] = "canny/lineart/anime_lineart/mlsd"
-            elif unit.unit_type == "normal":
-                base_prompt["239"]["inputs"]["type"] = "normal"
-
-    return base_prompt, current_pos

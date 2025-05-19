@@ -11,11 +11,11 @@ bl_info = {
     "name": "StableGen",
     "category": "Object",
     "author": "Ondrej Sakala",
-    "version": (0, 0, 1),
+    "version": (0, 0, 4),
     'blender': (4, 2, 0)
 }
 
-def update_model_dir(self, context): # Combined with load_handler to load controlnet unit on first setup
+def update_combined(self, context): # Combined with load_handler to load controlnet unit on first setup
     update_parameters(self, context)
     load_handler(None)
     return None
@@ -31,7 +31,15 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         description="Directory containing SD models",
         default="",
         subtype='DIR_PATH',
-        update=update_model_dir,
+        update=update_combined
+    ) # type: ignore
+
+    lora_dir: bpy.props.StringProperty(
+        name="LoRA Directory",
+        description="Directory containing LoRA models",
+        default="",
+        subtype='DIR_PATH',
+        update=update_combined
     ) # type: ignore
 
     server_address: bpy.props.StringProperty(
@@ -74,6 +82,8 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "model_dir")
         layout.prop(self, "server_address")
         layout.prop(self, "output_dir")
+        layout.separator()
+        layout.prop(self, "lora_dir")
         layout.prop(self, "controlnet_mapping")
         layout.prop(self, "save_blend_file")
 
@@ -152,6 +162,30 @@ class ControlNetUnit(bpy.types.PropertyGroup):
         update=update_parameters
     ) # type: ignore
 
+class LoRAUnit(bpy.types.PropertyGroup):
+    model_name: bpy.props.EnumProperty(
+        name="LoRA Model",
+        description="Select the LoRA model file",
+        items=lambda self, context: get_lora_models(self, context),
+        update=update_parameters
+    ) # type: ignore
+    model_strength: bpy.props.FloatProperty(
+        name="Model Strength",
+        description="Strength of the LoRA's effect on the model's weights",
+        default=1.0,
+        min=0.0,
+        max=100.0, # Adjusted max based on typical LoRA usage
+        update=update_parameters
+    )  # type: ignore
+    clip_strength: bpy.props.FloatProperty(
+        name="CLIP Strength",
+        description="Strength of the LoRA's effect on the CLIP/text conditioning",
+        default=1.0,
+        min=0.0,
+        max=100.0, # Adjusted max
+        update=update_parameters
+    )  # type: ignore
+
 def get_controlnet_models(context, unit_type):
     """
     Get available ControlNet models for a given type.
@@ -165,6 +199,21 @@ def get_controlnet_models(context, unit_type):
     except json.JSONDecodeError:
         return []
     return []
+
+def get_lora_models(self, context):
+    """
+    Populates the EnumProperty items with LoRA models from the lora_dir.
+    """
+    addon_prefs = context.preferences.addons[__package__].preferences
+    lora_dir = addon_prefs.lora_dir
+    loras = []
+    if os.path.isdir(lora_dir):
+        for f in os.listdir(lora_dir):
+            if f.endswith(('.safetensors')): # Common LoRA extensions
+                loras.append((f, f, ""))
+    if not loras:
+        loras.append(("NONE", "No LoRAs Found in Directory", "Please set the LoRA directory in preferences"))
+    return loras
 
 class AddControlNetUnit(bpy.types.Operator):
     bl_idname = "stablegen.add_controlnet_unit"
@@ -253,6 +302,112 @@ class RemoveControlNetUnit(bpy.types.Operator):
                 return {'FINISHED'}
         self.report({'WARNING'}, f"No unit of type '{self.unit_type}' found.")
         return {'CANCELLED'}
+    
+class AddLoRAUnit(bpy.types.Operator):
+    bl_idname = "stablegen.add_lora_unit"
+    bl_label = "Add LoRA Unit"
+    bl_description = "Add a LoRA to the chain. Disabled if no LoRAs are available or all available LoRAs have been added."
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        addon_prefs = context.preferences.addons[__package__].preferences
+        lora_dir = addon_prefs.lora_dir
+
+        if not lora_dir or not os.path.isdir(lora_dir):
+            cls.poll_message_set("LoRA directory not set or invalid in preferences.")
+            return False
+
+        # Get actual LoRA files, not the enum items which might include placeholders
+        available_lora_files = []
+        try:
+            for f in os.listdir(lora_dir):
+                if f.endswith(('.safetensors')):
+                    available_lora_files.append(f)
+        except FileNotFoundError: # Should be caught by os.path.isdir, but good practice
+            cls.poll_message_set("LoRA directory not found.")
+            return False
+        except PermissionError:
+            cls.poll_message_set("Permission denied for LoRA directory.")
+            return False
+
+
+        num_available_loras = len(available_lora_files)
+        num_current_lora_units = len(scene.lora_units)
+
+        if num_available_loras == 0:
+            cls.poll_message_set("No LoRA model files found in the specified directory.")
+            return False
+
+        if num_current_lora_units >= num_available_loras:
+            cls.poll_message_set("All available LoRA models have been added.")
+            return False
+            
+        return True
+
+    def execute(self, context):
+        loras = context.scene.lora_units
+        new_lora = loras.add()
+        
+        # Attempt to set a default model if available from the actual files
+        lora_dir = context.preferences.addons[__package__].preferences.lora_dir
+        available_lora_files = []
+        if os.path.isdir(lora_dir):
+            for f in os.listdir(lora_dir):
+                if f.endswith(('.safetensors')):
+                    available_lora_files.append(f)
+        
+        if available_lora_files:
+            # Try to assign a LoRA that isn't already used, if possible,
+            # or just the first one if all are new.
+            current_lora_model_names = {unit.model_name for unit in loras if unit.model_name != "NONE"}
+            assigned = False
+            for lora_file_name in available_lora_files:
+                if lora_file_name not in current_lora_model_names:
+                    try:
+                        new_lora.model_name = lora_file_name
+                        assigned = True
+                        break
+                    except TypeError: # Happens if the model_name enum is not yet updated with this specific file
+                        pass 
+            if not assigned: # Fallback to first available if all unique ones are taken or error
+                 try:
+                    new_lora.model_name = available_lora_files[0]
+                 except TypeError: # Enum not ready
+                    pass # It will pick the default "NONE" or whatever EnumProperty does
+        
+        new_lora.model_strength = 1.0
+        new_lora.clip_strength = 1.0
+        context.scene.lora_units_index = len(loras) - 1 # Select the new unit
+        update_parameters(self, context) # Assuming this function exists and updates presets/UI state
+        for area in context.screen.areas: # Force UI refresh
+            area.tag_redraw()
+        return {'FINISHED'}
+    
+class RemoveLoRAUnit(bpy.types.Operator):
+    bl_idname = "stablegen.remove_lora_unit"
+    bl_label = "Remove Selected LoRA Unit"
+    bl_description = "Remove the selected LoRA from the chain"
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        # Operator can run if there are LoRA units AND the current index is valid
+        return len(scene.lora_units) > 0 and \
+               0 <= scene.lora_units_index < len(scene.lora_units)
+
+    def execute(self, context):
+        loras = context.scene.lora_units
+        index = context.scene.lora_units_index
+        if 0 <= index < len(loras):
+            loras.remove(index)
+            context.scene.lora_units_index = min(max(0, index - 1), len(loras) - 1)
+            update_parameters(self, context)
+            for area in context.screen.areas:
+                area.tag_redraw()
+            return {'FINISHED'}
+        self.report({'WARNING'}, "No LoRA unit selected or list is empty.")
+        return {'CANCELLED'}
 
 # load handler to set default ControlNet unit
 @persistent
@@ -262,6 +417,19 @@ def load_handler(dummy):
         if hasattr(scene, "controlnet_units") and not scene.controlnet_units:
             default_unit = scene.controlnet_units.add()
             default_unit.unit_type = 'depth'
+        # If possible, also set 'sdxl_lightning_8step_lora.safetensors'
+        if hasattr(scene, "lora_units") and not scene.lora_units:
+            # Need to check if the file exists in the directory
+            addon_prefs = bpy.context.preferences.addons[__package__].preferences
+            lora_dir = addon_prefs.lora_dir
+            if os.path.isdir(lora_dir):
+                for f in os.listdir(lora_dir):
+                    if f == 'sdxl_lightning_8step_lora.safetensors':
+                        new_lora = scene.lora_units.add()
+                        new_lora.model_name = f
+                        new_lora.model_strength = 1.0
+                        new_lora.clip_strength = 1.0
+                        break
 
 def register():
     """     
@@ -278,6 +446,7 @@ def register():
     bpy.utils.register_class(ApplyModifiers)
     bpy.utils.register_class(CurvesToMesh)
     bpy.utils.register_class(ControlNetUnit)
+    bpy.utils.register_class(LoRAUnit)
     bpy.utils.register_class(CameraPromptItem)
     bpy.utils.register_class(CollectCameraPrompts)
     bpy.types.Scene.comfyui_prompt = bpy.props.StringProperty(
@@ -362,12 +531,6 @@ def register():
         name="Show Advanced Parameters",
         description="Show or hide advanced parameters",
         default=False,
-        update=update_parameters
-    )
-    bpy.types.Scene.show_depthmap_testing = bpy.props.BoolProperty(
-        name="Show Depthmap Testing",
-        description="Show or hide depthmap testing section",
-        default=True,
         update=update_parameters
     )
     bpy.types.Scene.show_generation_params = bpy.props.BoolProperty(
@@ -765,21 +928,6 @@ def register():
         min=1,
         update=update_parameters
     )
-    bpy.types.Scene.lora_type = bpy.props.EnumProperty(
-        name="LoRA Type",
-        description="Type of LoRA to use",
-        items=[
-            ('hyper_1step', 'Hyper (1 step)', ''),
-            ('hyper_4step', 'Hyper (4 steps)', ''),
-            ('hyper_8step', 'Hyper (8 steps)', ''),
-            ('lightning_2step', 'Lightning (2 steps)', ''),
-            ('lightning_4step', 'Lightning (4 steps)', ''),
-            ('lightning_8step', 'Lightning (8 steps)', ''),
-            ('none', 'None', '')
-        ],
-        default='lightning_8step',
-        update=update_parameters
-    )
     bpy.types.Scene.stablegen_preset = bpy.props.EnumProperty(
         name="Preset",
         description="Select a preset for easy mode",
@@ -824,6 +972,13 @@ def register():
     bpy.types.Scene.show_core_settings = bpy.props.BoolProperty(
         name="Core Generation Settings",
         description="Parameters used for the image generation process. Also includes LoRAs for faster generation.",
+        default=False,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.show_lora_settings = bpy.props.BoolProperty(
+        name="LoRA Settings",
+        description="Settings for custom LoRA management.",
         default=False,
         update=update_parameters
     )
@@ -878,7 +1033,11 @@ def register():
     bpy.types.Scene.controlnet_units = bpy.props.CollectionProperty(type=ControlNetUnit)
     bpy.utils.register_class(AddControlNetUnit)
     bpy.utils.register_class(RemoveControlNetUnit)
+    bpy.types.Scene.lora_units = bpy.props.CollectionProperty(type=LoRAUnit)
+    bpy.utils.register_class(AddLoRAUnit)
+    bpy.utils.register_class(RemoveLoRAUnit)
     bpy.types.Scene.controlnet_units_index = bpy.props.IntProperty(default=0)
+    bpy.types.Scene.lora_units_index = bpy.props.IntProperty(default=0)
     bpy.utils.register_class(ApplyPreset)
     bpy.utils.register_class(SavePreset)
     bpy.utils.register_class(DeletePreset) 
@@ -900,7 +1059,6 @@ def unregister():
     del bpy.types.Scene.sampler
     del bpy.types.Scene.scheduler
     del bpy.types.Scene.show_advanced_params
-    del bpy.types.Scene.show_depthmap_testing
     del bpy.types.Scene.show_generation_params
     del bpy.types.Scene.auto_rescale
     del bpy.types.Scene.generation_method
@@ -928,6 +1086,8 @@ def unregister():
     del bpy.types.Scene.fallback_color
     del bpy.types.Scene.controlnet_units
     del bpy.types.Scene.controlnet_units_index
+    del bpy.types.Scene.lora_units
+    del bpy.types.Scene.lora_units_index
     del bpy.types.Scene.weight_exponent_mask
     del bpy.types.Scene.sequential_smooth
     del bpy.types.Scene.canny_threshold_low
@@ -951,13 +1111,13 @@ def unregister():
     del bpy.types.Scene.sequential_ipadapter_regenerate
     del bpy.types.Scene.ipadapter_weight_type
     del bpy.types.Scene.clip_skip
-    del bpy.types.Scene.lora_type
     del bpy.types.Scene.stablegen_preset
     del bpy.types.Scene.model_architecture
     del bpy.types.Scene.output_timestamp
     del bpy.types.Scene.camera_prompts
     del bpy.types.Scene.use_camera_prompts
     del bpy.types.Scene.show_core_settings
+    del bpy.types.Scene.show_lora_settings
     del bpy.types.Scene.show_scene_understanding_settings
     del bpy.types.Scene.show_output_material_settings
     del bpy.types.Scene.show_image_guidance_settings
@@ -978,6 +1138,9 @@ def unregister():
     bpy.utils.unregister_class(ControlNetUnit)
     bpy.utils.unregister_class(AddControlNetUnit)
     bpy.utils.unregister_class(RemoveControlNetUnit)
+    bpy.utils.unregister_class(LoRAUnit)
+    bpy.utils.unregister_class(AddLoRAUnit)
+    bpy.utils.unregister_class(RemoveLoRAUnit)
     bpy.utils.unregister_class(ExportOrbitGIF)
     bpy.utils.unregister_class(CameraPromptItem)
     bpy.utils.unregister_class(CollectCameraPrompts) 

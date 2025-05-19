@@ -7,13 +7,13 @@ import math  # pylint: disable=import-error
 
 # Stock presets
 PRESETS = {
-    "DEFAULT": {"description": "Default settings for general purpose generation", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 90.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.15, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": False, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
-    "MODEL IS IMPORTANT": {"description": "Same as default, but is more guided by the model", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 90.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.15, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": False, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.75, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
-    "CHARACTERS": {"description": "Optimized settings for character generation", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 80.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.1, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
-    "CHARACTERS (ALTERNATIVE MASKING)": {"description": "Optimized for character generation. Uses alternative masking parameters to be more consistent between images, but may produce more artifacts. Try if \"Characters\" fails.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 80.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.5, "sequential_factor_smooth": 0.3499999940395355, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 10, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
-    "QUICK DRAFT": {"description": "Optimized for speed", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 4, "cfg": 1.0, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "hyper_4step", "discard_factor": 70.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "grid", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.1, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 2, "blur_mask_sigma": 1.0, "grow_mask_by": 2, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
-    "UV INPAINTING": {"description": "Recommended UV Inpainting setup. It is recommended to bake texutures manually before running the generation to fine-tune unwrapping and avoid lag when generating.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 10, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 80.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "uv_inpaint", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "3,0,1,2", "sequential_factor": 0.6000000238418579, "sequential_factor_smooth": 0.11000001430511475, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, },    
-    "ARCHITECTURE": {"description": "Prioritizes onlt the most straigh-on camera for each point. This means details generated on flat surfaces will not get blurred by getting generated differently from two or more viewpoints. Does not use visibility masking. Each picutre will get generated as new, consistency depends on IPAdapter + geometry.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "lora_type": "lightning_8step", "discard_factor": 80.0, "weight_exponent": 10.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "separate", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": False, "sequential_custom_camera_order": "", "sequential_factor": 0.75, "sequential_factor_smooth": 0.15000000596046448, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "ipadapter_weight_type": "style", "ipadapter_strength": 0.800000011920929, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": False, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.6000000238418579, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}],},
+    "DEFAULT": {"description": "Default settings for general purpose generation", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)),  "discard_factor": 90.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.15, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": False, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "MODEL IS IMPORTANT": {"description": "Same as default, but is more guided by the model", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 90.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.15, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": False, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.75, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "CHARACTERS": {"description": "Optimized settings for character generation", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 80.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.1, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "CHARACTERS (ALTERNATIVE MASKING)": {"description": "Optimized for character generation. Uses alternative masking parameters to be more consistent between images, but may produce more artifacts. Try if \"Characters\" fails.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 80.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.5, "sequential_factor_smooth": 0.3499999940395355, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 10, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "QUICK DRAFT": {"description": "Optimized for speed", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 4, "cfg": 1.0, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 70.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "grid", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.1, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 2, "blur_mask_sigma": 1.0, "grow_mask_by": 2, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'Hyper-SDXL-4steps-lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "UV INPAINTING": {"description": "Recommended UV Inpainting setup. It is recommended to bake texutures manually before running the generation to fine-tune unwrapping and avoid lag when generating.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 10, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 80.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "uv_inpaint", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "3,0,1,2", "sequential_factor": 0.6000000238418579, "sequential_factor_smooth": 0.11000001430511475, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]}, # No ControlNet for UV Inpainting by default
+    "ARCHITECTURE": {"description": "Prioritizes only the most straight-on camera for each point. This means details generated on flat surfaces will not get blurred by getting generated differently from two or more viewpoints. Does not use visibility masking. Each picture will get generated as new, consistency depends on IPAdapter + geometry.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.5, 0.5, 0.5)), "discard_factor": 80.0, "weight_exponent": 10.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "separate", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": False, "sequential_custom_camera_order": "", "sequential_factor": 0.75, "sequential_factor_smooth": 0.15000000596046448, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "ipadapter_weight_type": "style", "ipadapter_strength": 0.800000011920929, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": False, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.6000000238418579, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
 }
 
 # Global list of all generation parameter names to check for a preset.
@@ -25,7 +25,6 @@ GEN_PARAMETERS = [
     "sampler",
     "scheduler",
     "fallback_color",
-    "lora_type",
     "discard_factor",
     "weight_exponent",
     "clip_skip",
@@ -119,10 +118,37 @@ def update_parameters(self, context):
                     if not units_match:
                         break
                 
-                if not units_match:
-                    continue  # ControlNet units don't match, try next preset
+            if not units_match:
+                continue  # ControlNet units don't match, try next preset
+
+            # Now check LoRA units if present in the preset
+            if "lora_units" in preset:
+                current_lora_units_data = []
+                for lora_unit_obj in scene.lora_units:
+                    current_lora_units_data.append({
+                        "model_name": lora_unit_obj.model_name,
+                        "model_strength": round(lora_unit_obj.model_strength, 7),
+                        "clip_strength": round(lora_unit_obj.clip_strength, 7),
+                    })
+
+                preset_lora_units_data = preset["lora_units"]
+                if len(current_lora_units_data) != len(preset_lora_units_data):
+                    continue # Different number of LoRA units
+
+                lora_units_match = True
+                for i, current_lora_unit_data in enumerate(current_lora_units_data):
+                    preset_lora_unit_data = preset_lora_units_data[i]
+                    for key, value in current_lora_unit_data.items():
+                        if key not in preset_lora_unit_data or preset_lora_unit_data[key] != value:
+                            lora_units_match = False
+                            break
+                    if not lora_units_match:
+                        break
+                
+                if not lora_units_match:
+                    continue # LoRA units don't match, try next preset
             
-            # All parameters and ControlNet units match
+            # All parameters and ControlNet and LoRA units match
             if scene.stablegen_preset != name:
                 scene.stablegen_preset = name
                 scene.active_preset = name
@@ -314,7 +340,7 @@ class StableGenPanel(bpy.types.Panel):
             return None
 
         core_settings_props = [
-            "show_core_settings", "show_scene_understanding_settings", 
+            "show_core_settings", "show_lora_settings", "show_scene_understanding_settings", 
             "show_output_material_settings", "show_image_guidance_settings",
             "show_masking_inpainting_settings", "show_mode_specific_settings"
         ]
@@ -356,14 +382,66 @@ class StableGenPanel(bpy.types.Panel):
                 split = content_box.split(factor=0.5)
                 split.label(text="Scheduler:")
                 split.prop(scene, "scheduler", text="")
-
-                split = content_box.split(factor=0.5)
-                split.label(text="LoRa Type:")
-                split.prop(scene, "lora_type", text="")
                 
                 row = content_box.row()
                 row.prop(scene, "clip_skip", text="Clip Skip")
 
+           # --- LoRA Settings ---
+            content_box = draw_collapsible_section(advanced_params_box, "show_lora_settings", "LoRA Management", icon="MODIFIER")
+            if content_box:
+                row = content_box.row()
+                row.alignment = 'CENTER'
+                row.label(text="LoRA Units", icon="BRUSHES_ALL") # Using decimate icon for LoRA
+
+                lora_dir = addon_prefs.lora_dir
+                lora_dir_is_set_and_valid = lora_dir and os.path.isdir(lora_dir)
+
+                available_lora_files_count = 0
+                if lora_dir_is_set_and_valid:
+                    try:
+                        for f_name in os.listdir(lora_dir):
+                            if f_name.endswith(('.safetensors')):
+                                available_lora_files_count += 1
+                    except Exception: # Catch potential permission errors, etc.
+                        lora_dir_is_set_and_valid = False # Treat as invalid if unreadable
+
+                if scene.lora_units:
+                    for i, lora_unit in enumerate(scene.lora_units):
+                        is_selected_lora = (scene.lora_units_index == i)
+                        unit_box = content_box.box()
+                        row = unit_box.row()
+                        row.prop(lora_unit, "model_name", text=f"LoRA {i+1}") # Shows selected model
+                        
+                        sub_row = unit_box.row(align=True)
+                        sub_row.prop(lora_unit, "model_strength", text="Model Strength")
+                        sub_row.prop(lora_unit, "clip_strength", text="CLIP Strength")
+
+                        # Icon to indicate selection more clearly alongside the alert state
+                        select_icon = 'CHECKBOX_HLT' if is_selected_lora else 'CHECKBOX_DEHLT'
+                        
+                        # Selection button (now more like a radio button)
+                        op_select_lora = row.operator("wm.context_set_int", text="", icon=select_icon, emboss=True) # Keep emboss for the button itself
+                        op_select_lora.data_path = "scene.lora_units_index"
+                        op_select_lora.value = i
+
+                btn_row_lora = content_box.row(align=True)
+
+                if not scene.lora_units:
+                    # Only one button if no LoRA units are present
+                    button_text = "Add LoRA Unit" # Default text
+                    
+                    if not lora_dir_is_set_and_valid:
+                        button_text = "Set LoRA Directory in Preferences"
+                    elif available_lora_files_count == 0:
+                        button_text = "No LoRAs Found in Directory"
+                    
+                    # Draw the operator with the dynamically determined text
+                    btn_row_lora.operator("stablegen.add_lora_unit", text=button_text, icon="ADD")
+                    # The enabled state (greying out) will be handled by AddLoRAUnit.poll()
+                else:
+                    # Multiple buttons if LoRA units exist
+                    btn_row_lora.operator("stablegen.add_lora_unit", text="Add Another LoRA", icon="ADD")
+                    btn_row_lora.operator("stablegen.remove_lora_unit", text="Remove Selected", icon="REMOVE")
 
             # --- Image & Scene Understanding ---
             content_box = draw_collapsible_section(advanced_params_box, "show_scene_understanding_settings", "Viewpoint Blending Settings", icon="ZOOM_IN")
@@ -412,7 +490,7 @@ class StableGenPanel(bpy.types.Panel):
             content_box = draw_collapsible_section(advanced_params_box, "show_image_guidance_settings", "Image Guidance (IPAdapter & ControlNet)", icon="MODIFIER")
             if content_box:
                 # IPAdapter Parameters
-                if scene.model_architecture == 'sdxl':
+                if scene.model_architecture == 'sdxl' and not scene.generation_method == 'uv_inpaint':
                     ipadapter_main_box = content_box.box() # Group IPAdapter settings together
                     row = ipadapter_main_box.row()
                     row.prop(scene, "use_ipadapter", text="Use IPAdapter (External image)", toggle=True, icon="MOD_MULTIRES")
@@ -728,7 +806,7 @@ class ApplyPreset(bpy.types.Operator):
             
             # Apply regular parameters
             for key, value in values.items():
-                if key not in ["controlnet_units", "description"] and hasattr(context.scene, key):
+                if key not in ["controlnet_units", "lora_units", "description"] and hasattr(context.scene, key):
                     setattr(context.scene, key, value)
             
             # Apply ControlNet units if present in the preset
@@ -745,6 +823,22 @@ class ApplyPreset(bpy.types.Operator):
                             setattr(new_unit, key, value)
                         except TypeError:
                             self.report({'ERROR'}, f"Failed to set {key} for ControlNet unit: {value}. Model might be missing or might not be named correctly.")
+                            return {'CANCELLED'}
+                        
+            if "lora_units" in values:
+                # Clear existing LoRA units
+                context.scene.lora_units.clear()
+                
+                # Add new LoRA units from preset
+                lora_units = values["lora_units"]
+                for lora_data in lora_units:
+                    new_lora = context.scene.lora_units.add()
+                    for key, value in lora_data.items():
+                        try:
+                            setattr(new_lora, key, value)
+                        except TypeError:
+                            self.report({'ERROR'}, f"Failed to set {key} for LoRA unit: {value}. Model might be missing or might not be named correctly.")
+                            context.scene.lora_units.remove(len(context.scene.lora_units) - 1)
                             return {'CANCELLED'}
                         
             self.report({'INFO'}, f"Preset '{preset}' applied.")
@@ -773,7 +867,12 @@ class SavePreset(bpy.types.Operator):
         default=True,
         description="Include ControlNet units in the preset"
     ) # type: ignore
-    
+
+    include_loras: bpy.props.BoolProperty(
+        name="Include LoRA Units",
+        default=True
+    ) # type: ignore
+
     def execute(self, context):
         scene = context.scene
         key = self.preset_name.upper()
@@ -804,6 +903,18 @@ class SavePreset(bpy.types.Operator):
             
             # Add controlnet units to the preset
             PRESETS[key]["controlnet_units"] = controlnet_units
+
+        if self.include_loras: # Save LoRA units
+            lora_units_data = []
+            for lora_unit in scene.lora_units:
+                lora_units_data.append({
+                    "model_name": lora_unit.model_name,
+                    "model_strength": lora_unit.model_strength,
+                    "clip_strength": lora_unit.clip_strength,
+                })
+
+            # Add LoRA units to the preset
+            PRESETS[key]["lora_units"] = lora_units_data
         
         scene.stablegen_preset = key
         scene.active_preset = key
@@ -834,6 +945,7 @@ class SavePreset(bpy.types.Operator):
         layout.prop(self, "preset_name")
         layout.prop(self, "preset_description")
         layout.prop(self, "include_controlnet")
+        layout.prop(self, "include_loras")
 
 class DeletePreset(bpy.types.Operator):
     """Delete a custom preset"""
