@@ -205,8 +205,6 @@ class StableGenPanel(bpy.types.Panel):
 
         if not os.path.exists(addon_prefs.output_dir):
             config_error_message = "Output Path Invalid"
-        elif not os.path.exists(addon_prefs.model_dir):
-            config_error_message = "Model Path Invalid"
         elif not addon_prefs.server_address:
             config_error_message = "Server Address Missing"
 
@@ -222,7 +220,7 @@ class StableGenPanel(bpy.types.Panel):
             if not bpy.app.online_access:
                 action_row.operator("object.test_stable", text="Enable online access in preferences", icon="ERROR")
                 action_row.enabled = False
-            elif not scene.model_name:
+            elif not scene.model_name or scene.model_name == "NONE_FOUND":
                 action_row.operator("object.test_stable", text="Cannot generate: Model Directory Empty", icon="ERROR")
                 action_row.enabled = False
             elif scene.generation_status == 'idle':
@@ -313,7 +311,7 @@ class StableGenPanel(bpy.types.Panel):
             if scene.model_architecture == 'sdxl':
                 # Split for model name
                 split = params_container.split(factor=0.25)
-                split.label(text="Model:")
+                split.label(text="Checkpoint:")
                 split.prop(scene, "model_name", text="")
 
             # Split for model architecture
@@ -393,17 +391,25 @@ class StableGenPanel(bpy.types.Panel):
                 row.alignment = 'CENTER'
                 row.label(text="LoRA Units", icon="BRUSHES_ALL") # Using decimate icon for LoRA
 
-                lora_dir = addon_prefs.lora_dir
-                lora_dir_is_set_and_valid = lora_dir and os.path.isdir(lora_dir)
+                # Get ComfyUI directory and construct the specific path for LoRAs
+                comfyui_dir = addon_prefs.comfyui_dir 
+                actual_loras_path = ""
+                if comfyui_dir and os.path.isdir(comfyui_dir):
+                    actual_loras_path = os.path.join(comfyui_dir, "models", "loras")
+                
+                loras_path_is_set_and_valid = bool(actual_loras_path) and os.path.isdir(actual_loras_path)
 
                 available_lora_files_count = 0
-                if lora_dir_is_set_and_valid:
+                if loras_path_is_set_and_valid:
                     try:
-                        for f_name in os.listdir(lora_dir):
-                            if f_name.endswith(('.safetensors')):
+                        for f_name in os.listdir(actual_loras_path): # Use actual_loras_path
+                            # Use a more comprehensive check for LoRA file extensions
+                            if f_name.lower().endswith(('.safetensors', '.ckpt', '.pt', '.pth')):
                                 available_lora_files_count += 1
-                    except Exception: # Catch potential permission errors, etc.
-                        lora_dir_is_set_and_valid = False # Treat as invalid if unreadable
+                    except PermissionError: # More specific exception
+                        loras_path_is_set_and_valid = False 
+                    except Exception: # Catch other potential errors
+                        loras_path_is_set_and_valid = False 
 
                 if scene.lora_units:
                     for i, lora_unit in enumerate(scene.lora_units):
@@ -430,8 +436,8 @@ class StableGenPanel(bpy.types.Panel):
                     # Only one button if no LoRA units are present
                     button_text = "Add LoRA Unit" # Default text
                     
-                    if not lora_dir_is_set_and_valid:
-                        button_text = "Set LoRA Directory in Preferences"
+                    if not loras_path_is_set_and_valid:
+                        button_text = "Set ComfyUI Directory in Preferences"
                     elif available_lora_files_count == 0:
                         button_text = "No LoRAs Found in Directory"
                     

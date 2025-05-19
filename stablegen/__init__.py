@@ -26,17 +26,9 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
     """
     bl_idname = __package__
 
-    model_dir: bpy.props.StringProperty(
-        name="Model Directory",
-        description="Directory containing SD models",
-        default="",
-        subtype='DIR_PATH',
-        update=update_combined
-    ) # type: ignore
-
-    lora_dir: bpy.props.StringProperty(
-        name="LoRA Directory",
-        description="Directory containing LoRA models",
+    comfyui_dir: bpy.props.StringProperty(
+        name="ComfyUI Directory",
+        description="Path to the ComfyUI directory.",
         default="",
         subtype='DIR_PATH',
         update=update_combined
@@ -79,27 +71,72 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         :return: None     
         """
         layout = self.layout
-        layout.prop(self, "model_dir")
-        layout.prop(self, "server_address")
+        layout.prop(self, "comfyui_dir")
         layout.prop(self, "output_dir")
-        layout.separator()
-        layout.prop(self, "lora_dir")
+        layout.prop(self, "server_address")
         layout.prop(self, "controlnet_mapping")
         layout.prop(self, "save_blend_file")
 
+def get_models_from_directory(base_path: str, model_type_subdir: str, valid_extensions: tuple, include_subdirs: bool = True):
+    """
+    Helper function to scan a directory (and optionally subdirectories) for model files.
+
+    Args:
+        base_path (str): The base ComfyUI directory.
+        model_type_subdir (str): The subdirectory for the model type (e.g., "checkpoints", "loras").
+        valid_extensions (tuple): A tuple of valid lowercase file extensions (e.g., ('.safetensors', '.ckpt')).
+        include_subdirs (bool): Whether to scan subdirectories.
+
+    Returns:
+        list: A list of (relative_path, display_name, description) tuples for EnumProperty.
+              Returns a placeholder item if the directory is invalid or no models are found.
+    """
+    items = []
+    specific_model_path = os.path.join(base_path, "models", model_type_subdir)
+
+    if not (base_path and os.path.isdir(base_path)):
+        items.append(("NO_COMFYUI_DIR", f"ComfyUI Directory Not Set", "Please set in preferences"))
+        return items
+    
+    if not os.path.isdir(specific_model_path):
+        items.append((f"NO_{model_type_subdir.upper()}_SUBDIR", f"No '{model_type_subdir}' subdir", f"Expected at {specific_model_path}"))
+        return items
+
+    try:
+        if include_subdirs:
+            for root, dirs, files in os.walk(specific_model_path):
+                for f_name in files:
+                    if f_name.lower().endswith(valid_extensions):
+                        full_path = os.path.join(root, f_name)
+                        # Create a path relative to the specific_model_path for ComfyUI
+                        display_name = os.path.relpath(full_path, specific_model_path)
+                        items.append((display_name, display_name, f"{model_type_subdir.capitalize()} model: {display_name}"))
+        else: # Only scan top-level if include_subdirs is False
+            for f_name in os.listdir(specific_model_path):
+                if f_name.lower().endswith(valid_extensions):
+                    # Here, relative_path is just f_name
+                    items.append((f_name, f_name, f"{model_type_subdir.capitalize()} model: {f_name}"))
+    
+    except PermissionError:
+        items.append(("PERM_ERROR", f"Permission Denied for {model_type_subdir}", f"Cannot access {specific_model_path}"))
+    except Exception as e:
+        items.append(("SCAN_ERROR", f"Error Scanning {model_type_subdir}: {e}", f"Error scanning {specific_model_path}"))
+
+    if not items:
+        items.append(("NONE_FOUND", f"No {model_type_subdir.capitalize()} Found", "Check directory/permissions"))
+    
+    # Sort items alphabetically by display name for consistent UI
+    items.sort(key=lambda x: x[1])
+    return items
+
 def update_model_list(self, context):
-    """     
-    Updates the list of models in the model folder.         
-    :param self: Reference to the current instance.         
-    :param context: Blender context.         
-    :return: List of models.     
+    """
+    Populates EnumProperty items with checkpoint models from ComfyUI/models/checkpoints.
+    Returns a list of (identifier, name, description) tuples.
     """
     addon_prefs = context.preferences.addons[__package__].preferences
-    model_dir = addon_prefs.model_dir
-    if os.path.isdir(model_dir):
-        models = [f for f in os.listdir(model_dir) if f.endswith('.safetensors')]
-        return [(model, model, "") for model in models]
-    return []
+    comfyui_base_dir = addon_prefs.comfyui_dir
+    return get_models_from_directory(comfyui_base_dir, "checkpoints", ('.safetensors', '.ckpt', '.pth'))
 
 def update_union(self, context):
     if "union" in self.model_name.lower() or "promax" in self.model_name.lower():
@@ -202,18 +239,11 @@ def get_controlnet_models(context, unit_type):
 
 def get_lora_models(self, context):
     """
-    Populates the EnumProperty items with LoRA models from the lora_dir.
+    Populates EnumProperty items with LoRA models from ComfyUI/models/loras, including subdirectories.
     """
     addon_prefs = context.preferences.addons[__package__].preferences
-    lora_dir = addon_prefs.lora_dir
-    loras = []
-    if os.path.isdir(lora_dir):
-        for f in os.listdir(lora_dir):
-            if f.endswith(('.safetensors')): # Common LoRA extensions
-                loras.append((f, f, ""))
-    if not loras:
-        loras.append(("NONE", "No LoRAs Found in Directory", "Please set the LoRA directory in preferences"))
-    return loras
+    comfyui_base_dir = addon_prefs.comfyui_dir
+    return get_models_from_directory(comfyui_base_dir, "loras", ('.safetensors', '.ckpt', '.pt', '.pth'))
 
 class AddControlNetUnit(bpy.types.Operator):
     bl_idname = "stablegen.add_controlnet_unit"
@@ -312,35 +342,28 @@ class AddLoRAUnit(bpy.types.Operator):
     def poll(cls, context):
         scene = context.scene
         addon_prefs = context.preferences.addons[__package__].preferences
-        lora_dir = addon_prefs.lora_dir
+        comfyui_dir = addon_prefs.comfyui_dir
 
-        if not lora_dir or not os.path.isdir(lora_dir):
-            cls.poll_message_set("LoRA directory not set or invalid in preferences.")
+        if not comfyui_dir or not os.path.isdir(comfyui_dir):
+            cls.poll_message_set("ComfyUI directory not set or invalid.")
             return False
 
-        # Get actual LoRA files, not the enum items which might include placeholders
-        available_lora_files = []
-        try:
-            for f in os.listdir(lora_dir):
-                if f.endswith(('.safetensors')):
-                    available_lora_files.append(f)
-        except FileNotFoundError: # Should be caught by os.path.isdir, but good practice
-            cls.poll_message_set("LoRA directory not found.")
+        actual_loras_path = os.path.join(comfyui_dir, "models", "loras")
+        if not os.path.isdir(actual_loras_path):
+            cls.poll_message_set(f"ComfyUI 'models/loras' subdirectory not found.")
             return False
-        except PermissionError:
-            cls.poll_message_set("Permission denied for LoRA directory.")
-            return False
+            
+        lora_enum_items = get_models_from_directory(comfyui_dir, "loras", ('.safetensors', '.ckpt', '.pt', '.pth'))
+        available_lora_files_count = sum(1 for item in lora_enum_items if item[0] not in ["NONE_FOUND", "NO_COMFYUI_DIR", "NO_LORAS_SUBDIR", "PERM_ERROR", "SCAN_ERROR"])
 
-
-        num_available_loras = len(available_lora_files)
         num_current_lora_units = len(scene.lora_units)
 
-        if num_available_loras == 0:
-            cls.poll_message_set("No LoRA model files found in the specified directory.")
+        if available_lora_files_count == 0:
+            cls.poll_message_set("No LoRA model files found in ComfyUI 'models/loras' (and subdirs).")
             return False
 
-        if num_current_lora_units >= num_available_loras:
-            cls.poll_message_set("All available LoRA models have been added.")
+        if num_current_lora_units >= available_lora_files_count:
+            cls.poll_message_set("All available distinct LoRA models might have already been added.")
             return False
             
         return True
@@ -349,38 +372,81 @@ class AddLoRAUnit(bpy.types.Operator):
         loras = context.scene.lora_units
         new_lora = loras.add()
         
-        # Attempt to set a default model if available from the actual files
-        lora_dir = context.preferences.addons[__package__].preferences.lora_dir
+        addon_prefs = context.preferences.addons[__package__].preferences
+        comfyui_dir = addon_prefs.comfyui_dir
+        
+        # Get available LoRAs (including those in subdirs, with relative paths)
+        lora_enum_items = get_models_from_directory(comfyui_dir, "loras", ('.safetensors', '.ckpt', '.pt', '.pth'))
+        available_lora_paths = [item[0] for item in lora_enum_items if item[0] not in ["NONE_FOUND", "NO_COMFYUI_DIR", "NO_LORAS_SUBDIR", "PERM_ERROR", "SCAN_ERROR"]]
+        
+        if available_lora_paths:
+            current_lora_model_paths = {unit.model_name for unit in loras if unit.model_name and unit.model_name != "NONE"}
+            assigned = False
+            for lora_rel_path in available_lora_paths:
+                if lora_rel_path not in current_lora_model_paths:
+                    try:
+                        new_lora.model_name = lora_rel_path
+                        assigned = True
+                        break
+                    except TypeError: 
+                        pass 
+            if not assigned: 
+                 try:
+                    new_lora.model_name = available_lora_paths[0]
+                 except TypeError: 
+                    pass 
+        
+        new_lora.model_strength = 1.0
+        new_lora.clip_strength = 1.0
+        context.scene.lora_units_index = len(loras) - 1 
+        update_parameters(self, context) 
+        for area in context.screen.areas: 
+            area.tag_redraw()
+        return {'FINISHED'}
+
+    def execute(self, context):
+        loras = context.scene.lora_units
+        new_lora = loras.add()
+        
+        addon_prefs = context.preferences.addons[__package__].preferences
+        comfyui_dir = addon_prefs.comfyui_dir
+        actual_loras_path = ""
+        if comfyui_dir and os.path.isdir(comfyui_dir):
+            actual_loras_path = os.path.join(comfyui_dir, "models", "loras")
+
         available_lora_files = []
-        if os.path.isdir(lora_dir):
-            for f in os.listdir(lora_dir):
-                if f.endswith(('.safetensors')):
-                    available_lora_files.append(f)
+        if os.path.isdir(actual_loras_path):
+            try:
+                for f_name in os.listdir(actual_loras_path):
+                    # Comprehensive file extension check, case-insensitive
+                    if f_name.lower().endswith(('.safetensors', '.ckpt', '.pt', '.pth')):
+                        available_lora_files.append(f_name)
+            except Exception:
+                pass # Silently ignore errors here, EnumProperty will show "NONE" if list is empty
         
         if available_lora_files:
-            # Try to assign a LoRA that isn't already used, if possible,
-            # or just the first one if all are new.
-            current_lora_model_names = {unit.model_name for unit in loras if unit.model_name != "NONE"}
+            current_lora_model_names = {unit.model_name for unit in loras if unit.model_name and unit.model_name != "NONE"}
             assigned = False
+            # Try to assign a LoRA that isn't already in the list of *active* units (if possible)
             for lora_file_name in available_lora_files:
                 if lora_file_name not in current_lora_model_names:
                     try:
                         new_lora.model_name = lora_file_name
                         assigned = True
                         break
-                    except TypeError: # Happens if the model_name enum is not yet updated with this specific file
+                    except TypeError: 
                         pass 
-            if not assigned: # Fallback to first available if all unique ones are taken or error
+            if not assigned: # Fallback to first available if all are "taken" or other issues
                  try:
                     new_lora.model_name = available_lora_files[0]
-                 except TypeError: # Enum not ready
-                    pass # It will pick the default "NONE" or whatever EnumProperty does
+                 except TypeError: 
+                    pass 
         
         new_lora.model_strength = 1.0
         new_lora.clip_strength = 1.0
-        context.scene.lora_units_index = len(loras) - 1 # Select the new unit
-        update_parameters(self, context) # Assuming this function exists and updates presets/UI state
-        for area in context.screen.areas: # Force UI refresh
+        context.scene.lora_units_index = len(loras) - 1 
+        update_parameters(self, context) 
+        for area in context.screen.areas: 
             area.tag_redraw()
         return {'FINISHED'}
     
@@ -414,22 +480,44 @@ class RemoveLoRAUnit(bpy.types.Operator):
 def load_handler(dummy):
     if bpy.context.scene:
         scene = bpy.context.scene
+        addon_prefs = bpy.context.preferences.addons[__package__].preferences
         if hasattr(scene, "controlnet_units") and not scene.controlnet_units:
             default_unit = scene.controlnet_units.add()
             default_unit.unit_type = 'depth'
-        # If possible, also set 'sdxl_lightning_8step_lora.safetensors'
+        # Default LoRA Unit
         if hasattr(scene, "lora_units") and not scene.lora_units:
-            # Need to check if the file exists in the directory
-            addon_prefs = bpy.context.preferences.addons[__package__].preferences
-            lora_dir = addon_prefs.lora_dir
-            if os.path.isdir(lora_dir):
-                for f in os.listdir(lora_dir):
-                    if f == 'sdxl_lightning_8step_lora.safetensors':
+            comfyui_dir = addon_prefs.comfyui_dir
+            if comfyui_dir and os.path.isdir(comfyui_dir):
+                actual_loras_path = os.path.join(comfyui_dir, "models", "loras")
+                default_lora_filename = 'sdxl_lightning_8step_lora.safetensors' # This is a filename, not a relative path
+                
+                # Check if this specific LoRA exists (could be in a subdir)
+                lora_exists = False
+                lora_relative_path = "" # Will store subdir/filename.safetensors
+                if os.path.isdir(actual_loras_path):
+                    for root, _, files in os.walk(actual_loras_path):
+                        if default_lora_filename in files:
+                            full_path = os.path.join(root, default_lora_filename)
+                            lora_relative_path = os.path.relpath(full_path, actual_loras_path).replace("\\", "/")
+                            lora_exists = True
+                            break
+                
+                if lora_exists:
+                    valid_lora_choices = [item[0] for item in get_lora_models(None, bpy.context)]
+                    if lora_relative_path in valid_lora_choices:
                         new_lora = scene.lora_units.add()
-                        new_lora.model_name = f
-                        new_lora.model_strength = 1.0
-                        new_lora.clip_strength = 1.0
-                        break
+                        try:
+                            new_lora.model_name = lora_relative_path
+                            new_lora.model_strength = 1.0
+                            new_lora.clip_strength = 1.0
+                        except TypeError:
+                            if new_lora and hasattr(new_lora, 'name') and scene.lora_units and new_lora.name in scene.lora_units:
+                                 scene.lora_units.remove(scene.lora_units.find(new_lora.name))
+                            print(f"StableGen Load Handler: Could not set default LoRA '{lora_relative_path}' due to TypeError.")
+                        except Exception as e:
+                            print(f"StableGen Load Handler: Error setting default LoRA: {e}")
+                            if new_lora and hasattr(new_lora, 'name') and scene.lora_units and new_lora.name in scene.lora_units:
+                                 scene.lora_units.remove(scene.lora_units.find(new_lora.name))
 
 def register():
     """     
@@ -463,7 +551,7 @@ def register():
     )
     bpy.types.Scene.model_name = bpy.props.EnumProperty(
         name="Model Name",
-        description="Select the SD model",
+        description="Select the SDXL checkpoint",
         items=update_model_list,
         update=update_parameters
     )

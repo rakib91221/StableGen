@@ -96,7 +96,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         addon_prefs = context.preferences.addons[__package__].preferences
         if not os.path.exists(addon_prefs.output_dir):
             return False
-        if not os.path.exists(addon_prefs.model_dir):
+        if not os.path.exists(addon_prefs.comfyui_dir):
             return False
         if not addon_prefs.server_address:
             return False
