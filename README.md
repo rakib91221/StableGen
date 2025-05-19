@@ -30,7 +30,7 @@ StableGen empowers 3D artists by bringing cutting-edge AI texturing capabilities
     * Employ IPAdapter without an reference image for enhanced consistency in multi-view generation modes.
     * Control IPAdapter strength, weight type, and active steps.
 * ⚙️ **Flexible ComfyUI Backend:**
-    * Connects to your existing ComfyUI installation, allowing you to use your preferred SDXL checkpoints. Experimental support for FLUX.1-dev.
+    * Connects to your existing ComfyUI installation, allowing you to use your preferred SDXL checkpoints and custom LoRAs. Experimental support for FLUX.1-dev.
     * Offloads heavy computation to the ComfyUI server, keeping Blender mostly responsive.
 * ✨ **Advanced Inpainting & Refinement:**
     * **Refine Mode (Img2Img):** Re-style, enhance, or add detail to existing textures (StableGen generated or otherwise) using an image-to-image process. Choose to preserve original textures for localized refinement.
@@ -175,7 +175,7 @@ The `installer.py` script (found in this repository) automates the download and 
 1.  In Blender, go to `Edit > Preferences > Add-ons`.
 2.  Find "StableGen" and expand its preferences.
 3.  Set the following paths:
-    * **Model Directory:** Path to your SDXL checkpoint models (e.g., `<YourComfyUIDirectory>/models/checkpoints/`).
+    * **ComfyUI Directory:** Path to your ComfyUI installation (e.g., `<YourComfyUIDirectory>`).
     * **Output Directory:** Choose a folder where StableGen will save generated images.
     * **Server Address:** Ensure this matches your ComfyUI server (default `127.0.0.1:8188`).
     * Review **ControlNet Mapping** if using custom named ControlNet models.
@@ -197,7 +197,7 @@ Here’s how to get your first texture generated with StableGen:
     * In the StableGen panel, click "**Add Cameras**". Choose `Object` as center type. Adjust interactively if needed, then confirm.
 5.  **Set Basic Parameters:**
     * **Prompt:** Type a description (e.g., "ancient stone wall with moss").
-    * **Model:** Select your desired SDXL checkpoint model.
+    * **Checkpoint:** Select a checkpoint (e.g., `sdxl_base_1.0`).
     * **Generation Mode:** `Sequential` is a good starting point for consistency.
 6.  **Hit Generate!** Click the main "**Generate**" button.
 7.  **Observe:** Watch the progress in the panel and the ComfyUI console. Your object should update with the new texture! Output files will be in your specified "Output Directory".
@@ -231,7 +231,7 @@ These are the main operational buttons and initial setup tools, generally found 
 These are your primary controls for defining the generation:
 
 * **Prompt:** The main text description of the texture you want to generate.
-* **Model (SDXL):** Select the base SDXL checkpoint model.
+* **Checkpoint:** Select the base SDXL checkpoint.
 * **Architecture:** Choose between `SDXL` and `Flux 1` (experimental) model architectures.
 * **Generation Mode:** Defines the core strategy for texturing:
     * `Generate Separately`: Each viewpoint generates independently.
@@ -244,7 +244,8 @@ These are your primary controls for defining the generation:
 
 Click the arrow next to each title to expand and access detailed settings:
 
-* **Core Generation Settings:** Control diffusion basics like Seed, Steps, CFG, Negative Prompt, Sampler, Scheduler, LoRA type (currently only supporting Lighting and Hyper LoRAs for faster generation times), and Clip Skip.
+* **Core Generation Settings:** Control diffusion basics like Seed, Steps, CFG, Negative Prompt, Sampler, Scheduler and Clip Skip.
+* **LoRA Management:** Add and configure LoRAs (Low-Rank Adaptation) for additional style or content guidance. You can set the model and clip strength for each LoRA.
 * **Viewpoint Blending Settings:** Manage how textures from different camera views are combined, including camera-specific prompts, discard angles, and blending weight exponents.
 * **Output & Material Settings:** Define fallback color, material properties (BSDF), automatic resolution scaling, and options for baking textures during generation which enables generating with more than 8 viewpoints.
 * **Image Guidance (IPAdapter & ControlNet):** Configure IPAdapter for style transfer using external images and set up multiple ControlNet units (Depth, Canny, etc.) for precise structural control.
@@ -346,7 +347,6 @@ The open spirit of the AI and open-source communities is what makes projects lik
 ## 💡 List of planned features
 
 Here are some features we plan to implement in the future (in no particular order):
-* **Custom LoRA support:** Support for custom LoRAs.
 * **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
 * **FLUX.1-dev Support:** Full support for the FLUX.1-dev, including IPAdapter.

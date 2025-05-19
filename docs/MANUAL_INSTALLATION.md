@@ -51,7 +51,7 @@ These models are essential for StableGen's core features and presets. Download e
     * **License (for both):** Apache 2.0
     * **Combined Size:** ~6 GB
 
-* **c) SDXL Lighting LoRA (Recommended for Presets & Speed)**
+* **c) SDXL Lighting LoRA (Necessary for Default Presets & Recommended for Speed)**
     * **Directory:** `<YourComfyUIDirectory>/models/loras/`
     * **Filename:** `sdxl_lightning_8step_lora.safetensors`
     * **Download URL:** [https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors?download=true](https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors?download=true)
