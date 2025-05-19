@@ -342,6 +342,18 @@ The open spirit of the AI and open-source communities is what makes projects lik
 
 ---
 
+## 💡 List of planned features
+
+Here are some features we plan to implement in the future (in no particular order):
+* **Custom LoRA support:** Support for custom LoRAs.
+* **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
+* **Upscaling:** Support for upscaling generated textures.
+* **FLUX.1-dev Support:** Full support for the FLUX.1-dev, including IPAdapter.
+* **SD 3.5 Support:** Support for the Stable Diffusion 3.5 architecture.
+* **A new (alternative) blending algorithm for Sequential mode:** An algoritm that will prioritize earlier viewpoints, which should prevent some of the blurriness which can currently occur in some cases.
+
+If you have any suggestions, please feel free to open an issue!
+
 ## 📧 Contact
 
 Ondřej Sakala
