@@ -196,6 +196,9 @@ class StableGenPanel(bpy.types.Panel):
             if not bpy.app.online_access:
                 action_row.operator("object.test_stable", text="Enable online access in preferences", icon="ERROR")
                 action_row.enabled = False
+            elif not scene.model_name:
+                action_row.operator("object.test_stable", text="Cannot generate: Model Directory Empty", icon="ERROR")
+                action_row.enabled = False
             elif scene.generation_status == 'idle':
                 action_row.operator("object.test_stable", text="Generate", icon="PLAY")
             elif scene.generation_status == 'running':
