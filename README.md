@@ -266,6 +266,31 @@ Experiment with these settings and tools to achieve a vast range of effects and 
 
 ---
 
+## 📁 Output Directory Structure
+
+StableGen organizes the generated files within the `Output Directory` specified in your addon preferences. For each generation session, a new timestamped folder is created, helping you keep track of different iterations. The structure for each session (revision) is as follows:
+
+* `<Output Directory>/`
+    * `<SceneName>/` *(Based on your `.blend` file name, or scene name if unsaved)*
+        * `<YYYY-MM-DDTHH-MM-SS>/` *(Timestamp of generation start - this is the main revision directory)*
+            * `generated/` *(Main output textures from each camera/viewpoint before being applied or baked)*
+            * `controlnet/` *(Intermediate ControlNet input images)*
+                * `depth/` *(Depth pass renders)*
+                * `canny/` *(Renders processed using Canny edge decetor)*
+                * `normal/` *(Normal pass renders)*
+            * `baked/` *(Textures baked onto UV maps using the standalone `Bake Textures` tool)*
+            * `generated_baked/` *(Textures baked as part of the generation process if "Bake Textures While Generating" is enabled)*
+            * `inpaint/` *(Files related to inpainting processes, e.g., for `Sequential mode`)*
+                * `render/` *(Renders of previous state used as context for inpainting)*
+                * `visibility/` *(Visibility masks used as masks during the inpainting)*
+            * `uv_inpaint/` *(Files specific to the UV Inpaint mode)*
+                * `uv_visibility/` *(Visibility masks generated on UVs for UV inpainting)*
+            * `misc/` *(Other temporary or miscellaneous files, e.g., renders made for Canny edge detection input)*
+            * `orbit.gif` / `orbit.mp4` *(If the `Export Orbit GIF/MP4` tool is used, these files are saved directly into the timestamped revision directory)*
+            * `prompt.json` *(The last generated workflow to be used in ComfyUI)*
+         
+---
+
 ## 🤔 Troubleshooting
 
 Encountering issues? Here are some common fixes. Always check the **Blender System Console** (Window > Toggle System Console) AND the **ComfyUI server console** for error messages.
@@ -354,6 +379,8 @@ Here are some features we plan to implement in the future (in no particular orde
 * **A new (alternative) blending algorithm for Sequential mode:** An algoritm that will prioritize earlier viewpoints, which should prevent some of the blurriness which can currently occur in some cases.
 
 If you have any suggestions, please feel free to open an issue!
+
+---
 
 ## 📧 Contact
 
