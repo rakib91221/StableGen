@@ -39,7 +39,7 @@ StableGen empowers 3D artists by bringing cutting-edge AI texturing capabilities
     * **Camera Setup:** Quickly add and arrange multiple cameras around your subject.
     * **View-Specific Prompts:** Assign unique text prompts to individual camera viewpoints for targeted details.
     * **Texture Baking:** Convert complex procedural StableGen materials into standard UV image textures.
-    * **HDRI Setup, Modifier Application, Curve Conversion & Orbit GIF/MP4 Export.**
+    * **HDRI Setup, Modifier Application, Curve Conversion, GIF/MP4 Export & Reproject.**
 * 📋 **Preset System:**
     * Get started quickly with built-in presets for common scenarios (e.g., "Default", "Characters", "Quick Draft").
     * Save and manage your own custom parameter configurations for repeatable workflows.
@@ -179,6 +179,7 @@ The `installer.py` script (found in this repository) automates the download and 
     * **Output Directory:** Choose a folder where StableGen will save generated images.
     * **Server Address:** Ensure this matches your ComfyUI server (default `127.0.0.1:8188`).
     * Review **ControlNet Mapping** if using custom named ControlNet models.
+    * **External Checkpoints / LoRAs Directory (Optional):** Path to your external checkpoint directory. Also has to be configured in ComfyUI.
 4.  Enable online access in Blender if not enabled already. Select `Edit -> Preferences` from the topbar of Blender. Then navigate to `System -> Network` and check the box `Enable Online Access`. While StableGen does not require internet access, this is added to respect Blender add-on guidelines, as there are still network calls being made locally.
 
 ---
@@ -260,7 +261,8 @@ A collection of utilities to further support your texturing workflow:
 * **Add HDRI Light:** Prompts for an HDRI image file and sets it up as the world lighting, providing realistic illumination for your scene.
 * **Apply All Modifiers:** Iterates through all mesh objects in the scene, applies their modifier stacks, and converts geometry instances (like particle systems or collection instances) into real mesh data. This helps prepare models for texturing.
 * **Convert Curves to Mesh:** Converts any selected curve objects into mesh objects, which is necessary before StableGen can texture them.
-* **Export Orbit GIF/MP4:** Creates an animated GIF and MP4 video of the currently active object, with the camera orbiting around it. Useful for quickly showcasing your textured model. You can set duration, frame rate, and resolution.
+* **Export  GIF/MP4:** Creates an animated GIF and MP4 video of the currently active object, with the camera ing around it. Useful for quickly showcasing your textured model. You can set duration, frame rate, and resolution.
+* **Reproject Images:** This operator re-applies previously generated textures to your models using the latest `Viewpoint Blending Settings` (e.g., `Discard-Over Angle`, `Weight Exponent`). This allows you to tweak texture blending without full regeneration.
 
 Experiment with these settings and tools to achieve a vast range of effects and control! Remember that the optimal parameters can vary greatly depending on the model, subject matter, and desired artistic style.
 
@@ -286,7 +288,7 @@ StableGen organizes the generated files within the `Output Directory` specified 
             * `uv_inpaint/` *(Files specific to the UV Inpaint mode)*
                 * `uv_visibility/` *(Visibility masks generated on UVs for UV inpainting)*
             * `misc/` *(Other temporary or miscellaneous files, e.g., renders made for Canny edge detection input)*
-            * `orbit.gif` / `orbit.mp4` *(If the `Export Orbit GIF/MP4` tool is used, these files are saved directly into the timestamped revision directory)*
+            * `.gif` / `.mp4` *(If the `Export  GIF/MP4` tool is used, these files are saved directly into the timestamped revision directory)*
             * `prompt.json` *(The last generated workflow to be used in ComfyUI)*
          
 ---
