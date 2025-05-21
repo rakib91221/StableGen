@@ -666,6 +666,8 @@ def register():
             ('sgm_uniform', 'SGM Uniform', ''),
             ('karras', 'Karras', ''),
             ('beta', 'Beta', ''),
+            ('normal', 'Normal', ''),
+            ('simple', 'Simple', ''),
         ],
         default='sgm_uniform',
         update=update_parameters
