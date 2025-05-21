@@ -3,7 +3,7 @@ import bpy # pylint: disable=import-error
 from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters
 from .render_tools import BakeTextures, AddCameras, SwitchMaterial, ExportOrbitGIF, CollectCameraPrompts, CameraPromptItem 
 from .utils import AddHDRI, ApplyModifiers, CurvesToMesh
-from .generator import ComfyUIGenerate
+from .generator import ComfyUIGenerate, Reproject
 import os
 from bpy.app.handlers import persistent
 
@@ -14,6 +14,24 @@ bl_info = {
     "version": (0, 0, 4),
     'blender': (4, 2, 0)
 }
+
+classes = [
+    StableGenPanel,
+    ApplyPreset,
+    SavePreset,
+    DeletePreset,
+    BakeTextures,
+    AddCameras,
+    SwitchMaterial,
+    ExportOrbitGIF,
+    CollectCameraPrompts,
+    CameraPromptItem,
+    AddHDRI,
+    ApplyModifiers,
+    CurvesToMesh,
+    ComfyUIGenerate,
+    Reproject,
+]
 
 def update_combined(self, context): # Combined with load_handler to load controlnet unit on first setup
     update_parameters(self, context)
@@ -76,6 +94,7 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "server_address")
         layout.prop(self, "controlnet_mapping")
         layout.prop(self, "save_blend_file")
+
 
 def get_models_from_directory(base_path: str, model_type_subdir: str, valid_extensions: tuple, include_subdirs: bool = True):
     """
@@ -519,24 +538,18 @@ def load_handler(dummy):
                             if new_lora and hasattr(new_lora, 'name') and scene.lora_units and new_lora.name in scene.lora_units:
                                  scene.lora_units.remove(scene.lora_units.find(new_lora.name))
 
+classes_to_append = [StableGenAddonPreferences, ControlNetUnit, LoRAUnit, AddControlNetUnit, RemoveControlNetUnit, AddLoRAUnit, RemoveLoRAUnit]
+for cls in classes_to_append:
+    classes.append(cls)
+
 def register():
     """     
     Registers the addon.         
     :return: None     
     """
-    bpy.utils.register_class(StableGenAddonPreferences)
-    bpy.utils.register_class(StableGenPanel)
-    bpy.utils.register_class(ComfyUIGenerate)
-    bpy.utils.register_class(BakeTextures)
-    bpy.utils.register_class(AddCameras)
-    bpy.utils.register_class(SwitchMaterial)
-    bpy.utils.register_class(AddHDRI)
-    bpy.utils.register_class(ApplyModifiers)
-    bpy.utils.register_class(CurvesToMesh)
-    bpy.utils.register_class(ControlNetUnit)
-    bpy.utils.register_class(LoRAUnit)
-    bpy.utils.register_class(CameraPromptItem)
-    bpy.utils.register_class(CollectCameraPrompts)
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
     bpy.types.Scene.comfyui_prompt = bpy.props.StringProperty(
         name="ComfyUI Prompt",
         description="Enter the text prompt for ComfyUI generation",
@@ -1115,21 +1128,18 @@ def register():
         update=update_parameters
     )
     
+    bpy.types.Scene.project_only = bpy.props.BoolProperty(
+        name ="Project Only",
+        description="""Internal flag to only project existing textures onto the model""",
+        default=False,
+        update=update_parameters
+    )
     # IPADAPTER parameters
 
-
     bpy.types.Scene.controlnet_units = bpy.props.CollectionProperty(type=ControlNetUnit)
-    bpy.utils.register_class(AddControlNetUnit)
-    bpy.utils.register_class(RemoveControlNetUnit)
     bpy.types.Scene.lora_units = bpy.props.CollectionProperty(type=LoRAUnit)
-    bpy.utils.register_class(AddLoRAUnit)
-    bpy.utils.register_class(RemoveLoRAUnit)
     bpy.types.Scene.controlnet_units_index = bpy.props.IntProperty(default=0)
     bpy.types.Scene.lora_units_index = bpy.props.IntProperty(default=0)
-    bpy.utils.register_class(ApplyPreset)
-    bpy.utils.register_class(SavePreset)
-    bpy.utils.register_class(DeletePreset) 
-    bpy.utils.register_class(ExportOrbitGIF)
     bpy.app.handlers.load_post.append(load_handler)
 
 def unregister():   
@@ -1211,27 +1221,11 @@ def unregister():
     del bpy.types.Scene.show_image_guidance_settings
     del bpy.types.Scene.show_masking_inpainting_settings
     del bpy.types.Scene.show_mode_specific_settings
-    bpy.utils.unregister_class(ApplyPreset)
-    bpy.utils.unregister_class(DeletePreset) 
-    bpy.utils.unregister_class(SavePreset)
-    bpy.utils.unregister_class(CurvesToMesh)
-    bpy.utils.unregister_class(ApplyModifiers)
-    bpy.utils.unregister_class(AddHDRI)
-    bpy.utils.unregister_class(SwitchMaterial)
-    bpy.utils.unregister_class(AddCameras)
-    bpy.utils.unregister_class(BakeTextures)
-    bpy.utils.unregister_class(ComfyUIGenerate)
-    bpy.utils.unregister_class(StableGenPanel)
-    bpy.utils.unregister_class(StableGenAddonPreferences)
-    bpy.utils.unregister_class(ControlNetUnit)
-    bpy.utils.unregister_class(AddControlNetUnit)
-    bpy.utils.unregister_class(RemoveControlNetUnit)
-    bpy.utils.unregister_class(LoRAUnit)
-    bpy.utils.unregister_class(AddLoRAUnit)
-    bpy.utils.unregister_class(RemoveLoRAUnit)
-    bpy.utils.unregister_class(ExportOrbitGIF)
-    bpy.utils.unregister_class(CameraPromptItem)
-    bpy.utils.unregister_class(CollectCameraPrompts) 
+    del bpy.types.Scene.project_only
+    
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+        
     # Remove the load handler for default controlnet unit
     if load_handler in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(load_handler)

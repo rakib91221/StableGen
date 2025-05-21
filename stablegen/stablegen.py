@@ -796,6 +796,10 @@ class StableGenPanel(bpy.types.Panel):
         row = tools_box.row()
         row.operator("object.export_orbit_gif", text="Export Orbit GIF/MP4", icon="RENDER_ANIMATION")
 
+        if width_mode == 'narrow':
+            row = tools_box.row()
+        row.operator("object.stablegen_reproject", text="Reproject Textures", icon="FILE_REFRESH")
+
         layout.separator()
           
 

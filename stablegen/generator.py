@@ -25,6 +25,106 @@ def redraw_ui(context):
     for area in context.screen.areas:
         area.tag_redraw()
 
+class Reproject(bpy.types.Operator):
+    """Rerun projection of existing images
+    - Uses the Generate operator to reproject images, new textures will respect new Viewpoint Blending Settings
+    - Will not work with textures which used refine mode with the preserve parameter enabled"""
+    bl_idname = "object.stablegen_reproject"
+    bl_label = "Reproject Images"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    _original_method = None
+    _original_overwrite_material = None
+    _timer = None
+    @classmethod
+    def poll(cls, context):
+        """     
+        Polls whether the operator can be executed.         
+        :param context: Blender context.         
+        :return: True if the operator can be executed, False otherwise.     
+        """
+        # Check for other modal operators
+        operator = None
+        if context.scene.output_timestamp == "":
+            return False
+        for window in context.window_manager.windows:
+                for op in window.modal_operators:
+                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or\
+                    op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_test_stable' or\
+                          op.bl_idname == 'OBJECT_OT_stablegen_reproject' or context.scene.generation_status == 'waiting':
+                        operator = op
+                        break
+                if operator:
+                    break
+        if operator:
+            return False
+        return True
+
+    def execute(self, context):
+        """     
+        Executes the operator.         
+        :param context: Blender context.         
+        :return: {'FINISHED'}     
+        """
+        # Search for largest material id
+        meshes = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+        max_id = -1
+        for obj in meshes:
+            mat_id = get_last_material_index(obj)
+            if mat_id > max_id:
+                max_id = mat_id
+
+        cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
+        for i, _ in enumerate(cameras):
+            # Check if the camera has a corresponding generated image
+            image_path = get_file_path(context, "generated", camera_id=i, material_id=max_id)
+            if not os.path.exists(image_path):
+                self.report({'ERROR'}, f"Camera {i} does not have a corresponding generated image.")
+                print(f"{image_path} does not exist")
+                return {'CANCELLED'}
+        
+        self._original_method = context.scene.generation_method
+        self._original_overwrite_material = context.scene.overwrite_material
+        # Set the flag to reproject
+        context.scene.project_only = True
+        # Set the generation method to 'separate' to avoid generating new images
+        context.scene.generation_method = 'separate'
+        context.scene.overwrite_material = True
+        # Set timer to 1 seconds to give some time for the generate to start
+        context.window_manager.modal_handler_add(self)
+        self._timer = context.window_manager.event_timer_add(1.0, window=context.window)
+        # Run the generation operator
+        bpy.ops.object.test_stable('INVOKE_DEFAULT')
+
+        # Switch to modal and wait for completion
+        print("Going modal")
+        return {'RUNNING_MODAL'}
+    
+    def modal(self, context, event):
+        """     
+        Handles modal events.         
+        :param context: Blender context.         
+        :param event: Blender event.         
+        :return: {'PASS_THROUGH'}     
+        """
+        if event.type == 'TIMER':
+            running = False
+            if ComfyUIGenerate._is_running:
+                running = True
+            if not running:
+                # Reset the generation method and overwrite material flag
+                context.scene.generation_method = self._original_method
+                context.scene.overwrite_material = self._original_overwrite_material
+                # Reset the project only flag
+                context.scene.project_only = False
+                # Remove the modal handler
+                context.window_manager.event_timer_remove(self._timer)
+                # Report completion
+                self.report({'INFO'}, "Reprojection complete.")
+                return {'FINISHED'}
+        return {'PASS_THROUGH'}
+
+
 class ComfyUIGenerate(bpy.types.Operator):
     """Generate textures using ComfyUI (to all mesh objects using all cameras in the scene)
     
@@ -115,7 +215,8 @@ class ComfyUIGenerate(bpy.types.Operator):
             return {'FINISHED'}
         
         # Timestamp for output directory
-        context.scene.output_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        if not context.scene.project_only:
+            context.scene.output_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         
         # If UV inpainting and we're in prompt collection mode, collect prompts first.
         if context.scene.generation_method == 'uv_inpaint' and self.show_prompt_dialog:
@@ -177,7 +278,10 @@ class ComfyUIGenerate(bpy.types.Operator):
         if any(obj.type == 'CURVE' for obj in bpy.context.scene.objects):
             self.report({'WARNING'}, "Curves detected in the scene. This may cause issues with the generation process. Consider removing them before proceeding.")
         
-        print(f"Generating images for {len(self._cameras)} cameras")
+        if context.scene.project_only:
+            print(f"Reprojecting images for {len(self._cameras)} cameras")
+        else:
+            print(f"Generating images for {len(self._cameras)} cameras")
 
         uv_slots_needed = len(self._cameras)
 
@@ -245,33 +349,34 @@ class ComfyUIGenerate(bpy.types.Operator):
                 self._cameras.append(camera)
                 bpy.context.scene.collection.objects.link(camera)
 
-        # If there is depth controlnet unit
-        if any(unit["unit_type"] == "depth" for unit in controlnet_units):
-            if context.scene.generation_method != 'uv_inpaint':
-                # Export depth maps for each camera
-                for i, camera in enumerate(self._cameras):
-                    bpy.context.scene.camera = camera
-                    self.export_depthmap(context, camera_id=i)
-                if context.scene.generation_method == 'grid':
-                    self.combine_maps(context, self._cameras, type="depth")
-        # If there is canny controlnet unit
-        if any(unit["unit_type"] == "canny" for unit in controlnet_units):
-            if context.scene.generation_method != 'uv_inpaint':
-                # Export canny maps for each camera
-                for i, camera in enumerate(self._cameras):
-                    bpy.context.scene.camera = camera
-                    export_canny(context, camera_id=i, low_threshold=context.scene.canny_threshold_low, high_threshold=context.scene.canny_threshold_high)
-                if context.scene.generation_method == 'grid':
-                    self.combine_maps(context, self._cameras, type="canny")
-        # If there is normal controlnet unit
-        if any(unit["unit_type"] == "normal" for unit in controlnet_units):
-            if context.scene.generation_method != 'uv_inpaint':
-                # Export normal maps for each camera
-                for i, camera in enumerate(self._cameras):
-                    bpy.context.scene.camera = camera
-                    self.export_normal(context, camera_id=i)
-                if context.scene.generation_method == 'grid':
-                    self.combine_maps(context, self._cameras, type="normal")
+        if not context.scene.project_only:
+            # If there is depth controlnet unit
+            if any(unit["unit_type"] == "depth" for unit in controlnet_units):
+                if context.scene.generation_method != 'uv_inpaint':
+                    # Export depth maps for each camera
+                    for i, camera in enumerate(self._cameras):
+                        bpy.context.scene.camera = camera
+                        self.export_depthmap(context, camera_id=i)
+                    if context.scene.generation_method == 'grid':
+                        self.combine_maps(context, self._cameras, type="depth")
+            # If there is canny controlnet unit
+            if any(unit["unit_type"] == "canny" for unit in controlnet_units):
+                if context.scene.generation_method != 'uv_inpaint':
+                    # Export canny maps for each camera
+                    for i, camera in enumerate(self._cameras):
+                        bpy.context.scene.camera = camera
+                        export_canny(context, camera_id=i, low_threshold=context.scene.canny_threshold_low, high_threshold=context.scene.canny_threshold_high)
+                    if context.scene.generation_method == 'grid':
+                        self.combine_maps(context, self._cameras, type="canny")
+            # If there is normal controlnet unit
+            if any(unit["unit_type"] == "normal" for unit in controlnet_units):
+                if context.scene.generation_method != 'uv_inpaint':
+                    # Export normal maps for each camera
+                    for i, camera in enumerate(self._cameras):
+                        bpy.context.scene.camera = camera
+                        self.export_normal(context, camera_id=i)
+                    if context.scene.generation_method == 'grid':
+                        self.combine_maps(context, self._cameras, type="normal")
 
         # Prepare for generating
         if context.scene.generation_method == 'grid':
@@ -316,7 +421,10 @@ class ComfyUIGenerate(bpy.types.Operator):
         self.prompt_text = context.scene.comfyui_prompt
 
         self._progress = 0.0
-        self._stage = "Starting"
+        if context.scene.project_only:
+            self._stage = "Reprojecting"
+        else:
+            self._stage = "Starting"
         redraw_ui(context)
         self._current_image = 0
         self._total_images = len(self._cameras)
@@ -365,7 +473,8 @@ class ComfyUIGenerate(bpy.types.Operator):
                     remove_empty_dirs(context)
                     context.scene.generation_status = 'idle'
                     return {'CANCELLED'}
-                self.report({'INFO'}, "Generation complete.")
+                if not context.scene.project_only:
+                    self.report({'INFO'}, "Generation complete.")
                 context.scene.display_settings.display_device = 'sRGB'
                 context.scene.view_settings.view_transform = 'Standard'
                 context.scene.generation_status = 'idle'
@@ -428,8 +537,6 @@ class ComfyUIGenerate(bpy.types.Operator):
         :param context: Blender context.         
         :return: None     
         """
-        output_dir = context.preferences.addons[__package__].preferences.output_dir
-
         self._error = None
         try:
             mesh_objects = None
@@ -441,7 +548,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             normal_path = None
             mask_path = None
             render_path = None
-            while self._threads_left > 0:
+            while self._threads_left > 0 and not context.scene.project_only:
                 if context.scene.steps != 0:
                     # Generate image without ControlNet if needed
                     if camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
@@ -853,6 +960,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         controlnet_units = getattr(context.scene, "controlnet_units", [])
         current_pos = pos_input
         current_neg = neg_input
+        has_union = False
         for idx, unit in enumerate(controlnet_units):
             # Generate unique keys for nodes in this chain unit.
             load_key = str(200 + idx * 3)       # LoadImage node
@@ -910,10 +1018,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                     base_prompt["239"]["inputs"]["type"] = "canny/lineart/anime_lineart/mlsd"
                 elif unit.unit_type == "normal":
                     base_prompt["239"]["inputs"]["type"] = "normal"
-            else:
-                # Remove the node
-                if "239" in base_prompt:
-                    del base_prompt["239"]
+                has_union = True
+        if not has_union:
+            # Remove the node
+            if "239" in base_prompt:
+                del base_prompt["239"]
 
         return base_prompt, current_pos
     
