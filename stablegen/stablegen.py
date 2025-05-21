@@ -446,6 +446,9 @@ class StableGenPanel(bpy.types.Panel):
                 
                 row = content_box.row()
                 row.prop(scene, "weight_exponent", text="Weight Exponent")
+
+                row = content_box.row()
+                row.prop(scene, "keep_above", text="Keep Above")
                 
 
             # --- Output & Material Settings ---

@@ -32,9 +32,9 @@ def project_image(context, mat_id, stop_index=1000000):
         """
         # Compute offsets based on recursion level
         if context.scene.refine_preserve:
-            x_offset = 1000 + level * 600 + last_node.location[0] + 200
+            x_offset = 1000 + level * 800 + last_node.location[0] + 200
         else:
-            x_offset = 1000 + level * 600
+            x_offset = 1000 + level * 800
         y_offset = 0
         if len(shaders) == 1:
             # Base-case: Mix single color with fallback magenta
@@ -97,25 +97,32 @@ def project_image(context, mat_id, stop_index=1000000):
                 vert_offset = -200 * (i // 2)
                 sum_node = nodes_collection.new("ShaderNodeMath")
                 sum_node.operation = 'ADD'
-                sum_node.location = (x_offset - 600, y_offset + vert_offset)
+                sum_node.location = (x_offset - 800, y_offset + vert_offset)
                 links.new(weight_nodes[i].outputs[0], sum_node.inputs[0])
                 links.new(weight_nodes[i+1].outputs[0], sum_node.inputs[1])
 
                 # Compute mix factor: weight_A / (weight_A+weight_B)
                 div_node = nodes_collection.new("ShaderNodeMath")
                 div_node.operation = 'DIVIDE'
-                div_node.location = (x_offset - 400, y_offset + vert_offset)
+                div_node.location = (x_offset - 600, y_offset + vert_offset)
                 links.new(weight_nodes[i+1].outputs[0], div_node.inputs[0])
                 links.new(sum_node.outputs[0], div_node.inputs[1])
+
+                add_node = nodes_collection.new("ShaderNodeMath")
+                sum_node.operation = 'ADD'
+                add_node.location = (x_offset - 400, y_offset + vert_offset)
+                add_node.inputs[0].default_value = -context.scene.keep_above
+                links.new(div_node.outputs[0], add_node.inputs[1])
 
                 # Create a MixRGB node for color blending of the two inputs
                 mix_node = nodes_collection.new("ShaderNodeMixRGB")
                 mix_node.location = (x_offset - 200, y_offset + vert_offset)
+                mix_node.use_clamp = True
                 # Connect first color to Color1 and second color to Color2
                 links.new(shaders[i].outputs[0], mix_node.inputs["Color1"])
                 links.new(shaders[i+1].outputs[0], mix_node.inputs["Color2"])
                 # Use the computed mix factor
-                links.new(div_node.outputs[0], mix_node.inputs["Fac"])
+                links.new(add_node.outputs[0], mix_node.inputs["Fac"])
 
                 new_shaders.append(mix_node)
                 # The new effective weight is the sum (stored in sum_node)

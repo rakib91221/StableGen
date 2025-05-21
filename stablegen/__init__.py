@@ -1176,6 +1176,15 @@ def register():
         default=False,
         update=update_parameters
     )
+
+    bpy.types.Scene.keep_above = bpy.props.FloatProperty(
+        name="Keep Above",
+        description="Keep pixels above this ratio",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        update=update_parameters
+    )
     # IPADAPTER parameters
 
     bpy.types.Scene.controlnet_units = bpy.props.CollectionProperty(type=ControlNetUnit)
@@ -1264,6 +1273,7 @@ def unregister():
     del bpy.types.Scene.show_masking_inpainting_settings
     del bpy.types.Scene.show_mode_specific_settings
     del bpy.types.Scene.project_only
+    del bpy.types.Scene.keep_above
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
