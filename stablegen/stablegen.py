@@ -399,18 +399,6 @@ class StableGenPanel(bpy.types.Panel):
                 
                 loras_path_is_set_and_valid = bool(actual_loras_path) and os.path.isdir(actual_loras_path)
 
-                available_lora_files_count = 0
-                if loras_path_is_set_and_valid:
-                    try:
-                        for f_name in os.listdir(actual_loras_path): # Use actual_loras_path
-                            # Use a more comprehensive check for LoRA file extensions
-                            if f_name.lower().endswith(('.safetensors', '.ckpt', '.pt', '.pth')):
-                                available_lora_files_count += 1
-                    except PermissionError: # More specific exception
-                        loras_path_is_set_and_valid = False 
-                    except Exception: # Catch other potential errors
-                        loras_path_is_set_and_valid = False 
-
                 if scene.lora_units:
                     for i, lora_unit in enumerate(scene.lora_units):
                         is_selected_lora = (scene.lora_units_index == i)
@@ -438,8 +426,6 @@ class StableGenPanel(bpy.types.Panel):
                     
                     if not loras_path_is_set_and_valid:
                         button_text = "Set ComfyUI Directory in Preferences"
-                    elif available_lora_files_count == 0:
-                        button_text = "No LoRAs Found in Directory"
                     
                     # Draw the operator with the dynamically determined text
                     btn_row_lora.operator("stablegen.add_lora_unit", text=button_text, icon="ADD")
