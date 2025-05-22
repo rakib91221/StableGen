@@ -650,7 +650,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                             if self._current_image < len(self._cameras) - 1:
                                 next_camera_id = self._current_image + 1
                                 export_visibility(context, camera_visibility=self._cameras[self._current_image]) # Export mask for current view
-                                export_emit_image(context, camera_id=next_camera_id) # Export render for next view
+                                export_emit_image(context, camera_id=next_camera_id, bg_color=context.scene.fallback_color) # Export render for next view
                             # Set the event to signal the end of the process
                             self._wait_event.set()
                             return None
