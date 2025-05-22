@@ -1177,12 +1177,22 @@ def register():
         update=update_parameters
     )
 
-    bpy.types.Scene.keep_above = bpy.props.FloatProperty(
-        name="Keep Above",
-        description="Keep pixels above this ratio",
-        default=0.0,
+    bpy.types.Scene.early_priority_strength = bpy.props.FloatProperty(
+        name="Prioritize Initial Views",
+        description="""Strength of the priority applied to initial views. Higher values will make the earlier cameras more important than the later ones. Every view will be prioritized over the next one.
+    - Very high values may cause various artifacts.""",
+        default=0.5,
         min=0.0,
         max=1.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.early_priority = bpy.props.BoolProperty(
+        name="Priority Strength",
+        description="""Enable blending priority for earlier cameras.
+    - This may prevent artifacts caused by later cameras overwriting earlier ones.
+    - You will have to place the important cameras first.""",
+        default=False,
         update=update_parameters
     )
     # IPADAPTER parameters
@@ -1273,7 +1283,8 @@ def unregister():
     del bpy.types.Scene.show_masking_inpainting_settings
     del bpy.types.Scene.show_mode_specific_settings
     del bpy.types.Scene.project_only
-    del bpy.types.Scene.keep_above
+    del bpy.types.Scene.early_priority_strength
+    del bpy.types.Scene.early_priority
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

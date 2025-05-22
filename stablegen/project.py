@@ -32,9 +32,9 @@ def project_image(context, mat_id, stop_index=1000000):
         """
         # Compute offsets based on recursion level
         if context.scene.refine_preserve:
-            x_offset = 1000 + level * 800 + last_node.location[0] + 200
+            x_offset = 1000 + level * 800 + last_node.location[0] + 200 if context.scene.early_priority else 1000 + level * 600 + last_node.location[0] + 200
         else:
-            x_offset = 1000 + level * 800
+            x_offset = 1000 + level * 800 if context.scene.early_priority else 1000 + level * 600
         y_offset = 0
         if len(shaders) == 1:
             # Base-case: Mix single color with fallback magenta
@@ -97,22 +97,25 @@ def project_image(context, mat_id, stop_index=1000000):
                 vert_offset = -200 * (i // 2)
                 sum_node = nodes_collection.new("ShaderNodeMath")
                 sum_node.operation = 'ADD'
-                sum_node.location = (x_offset - 800, y_offset + vert_offset)
+                sum_node.location = (x_offset - 800, y_offset + vert_offset) if context.scene.early_priority else (x_offset - 600, y_offset + vert_offset)
                 links.new(weight_nodes[i].outputs[0], sum_node.inputs[0])
                 links.new(weight_nodes[i+1].outputs[0], sum_node.inputs[1])
 
                 # Compute mix factor: weight_A / (weight_A+weight_B)
                 div_node = nodes_collection.new("ShaderNodeMath")
                 div_node.operation = 'DIVIDE'
-                div_node.location = (x_offset - 600, y_offset + vert_offset)
+                div_node.location = (x_offset - 600, y_offset + vert_offset) if context.scene.early_priority else (x_offset - 400, y_offset + vert_offset)
                 links.new(weight_nodes[i+1].outputs[0], div_node.inputs[0])
                 links.new(sum_node.outputs[0], div_node.inputs[1])
 
-                add_node = nodes_collection.new("ShaderNodeMath")
-                sum_node.operation = 'ADD'
-                add_node.location = (x_offset - 400, y_offset + vert_offset)
-                add_node.inputs[0].default_value = -context.scene.keep_above
-                links.new(div_node.outputs[0], add_node.inputs[1])
+                if context.scene.early_priority:
+                    # Add map range node
+                    map_range_node = nodes_collection.new("ShaderNodeMapRange")
+                    map_range_node.location = (x_offset - 400, y_offset + vert_offset)
+                    # to_min, to_max, from_max are set to 0.0 and 1.0 by default
+                    # set to prioritize earlier images
+                    map_range_node.inputs[1].default_value = context.scene.early_priority_strength
+                    links.new(div_node.outputs[0], map_range_node.inputs[0])
 
                 # Create a MixRGB node for color blending of the two inputs
                 mix_node = nodes_collection.new("ShaderNodeMixRGB")
@@ -122,7 +125,8 @@ def project_image(context, mat_id, stop_index=1000000):
                 links.new(shaders[i].outputs[0], mix_node.inputs["Color1"])
                 links.new(shaders[i+1].outputs[0], mix_node.inputs["Color2"])
                 # Use the computed mix factor
-                links.new(add_node.outputs[0], mix_node.inputs["Fac"])
+                to_connect = div_node if not context.scene.early_priority else map_range_node
+                links.new(to_connect.outputs[0], mix_node.inputs["Fac"])
 
                 new_shaders.append(mix_node)
                 # The new effective weight is the sum (stored in sum_node)
@@ -159,6 +163,18 @@ def project_image(context, mat_id, stop_index=1000000):
                     
                 # Make object data single-user before applying modifier
                 bpy.ops.object.make_single_user(object=True, obdata=True)
+
+                # Check if the data is now single user
+                if obj.data.users > 1:
+                    # If not, we need to make it single user again
+                    print("Warning: Cannot make object data single user. Making a copy.")
+                    obj.data = obj.data.copy()
+                    obj.data.name = f"{obj.name}_data"
+                    obj.data.update()
+                    # Check again
+                    if obj.data.users > 1:
+                        print("Error: Cannot make object data single user. Exiting.")
+                        return Exception("Cannot make object data single user. Exiting.")
 
                 # Add new UV map if not present (with same name)
                 # Check if "ProjectionUV" UV map already exists

@@ -448,7 +448,10 @@ class StableGenPanel(bpy.types.Panel):
                 row.prop(scene, "weight_exponent", text="Weight Exponent")
 
                 row = content_box.row()
-                row.prop(scene, "keep_above", text="Keep Above")
+                row.prop(scene, "early_priority", text="Prioritize Initial Views", toggle=True, icon="REW")
+                if scene.early_priority:
+                    row = content_box.row()
+                    row.prop(scene, "early_priority_strength", text="Priority Strength")
                 
 
             # --- Output & Material Settings ---
