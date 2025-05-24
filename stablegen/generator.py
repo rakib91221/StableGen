@@ -1561,6 +1561,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         bpy.context.scene.display_settings.display_device = 'sRGB'
         bpy.context.scene.view_settings.view_transform = 'Raw'
 
+        original_pass_z = view_layer.use_pass_z
+
         # Enable depth pass in the render settings
         view_layer.use_pass_z = True
 
@@ -1609,6 +1611,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         bpy.context.scene.render.engine = original_engine
         bpy.context.scene.view_settings.view_transform = original_view_transform
         bpy.context.scene.render.film_transparent = original_film_transparent
+        view_layer.use_pass_z = original_pass_z
 
     def export_normal(self, context, camera_id=None):
         """
@@ -1627,6 +1630,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             os.makedirs(output_dir)
 
         view_layer = bpy.context.view_layer
+        original_pass_normal = view_layer.use_pass_normal
         view_layer.use_pass_normal = True
 
         # Store original settings to restore later.
@@ -1638,14 +1642,6 @@ class ComfyUIGenerate(bpy.types.Operator):
         bpy.context.scene.view_settings.view_transform = 'Raw'
         bpy.context.scene.render.film_transparent = True
         bpy.context.scene.use_nodes = True
-
-        # Disable unnecessary passes.
-        view_layer.use_pass_z = False
-        view_layer.use_pass_uv = False
-        view_layer.use_pass_combined = False
-        view_layer.use_pass_emit = False
-        view_layer.use_pass_environment = False
-        view_layer.use_pass_mist = False
 
         # Clear existing nodes.
         nodes = bpy.context.scene.node_tree.nodes
@@ -1684,6 +1680,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         bpy.context.scene.render.engine = original_engine
         bpy.context.scene.view_settings.view_transform = original_view_transform
         bpy.context.scene.render.film_transparent = original_film_transparent
+
+        view_layer.use_pass_normal = original_pass_normal
 
         print(f"Normal map saved to: {os.path.join(output_dir, output_file)}.png")
 

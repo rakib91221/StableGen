@@ -322,6 +322,12 @@ def export_render(context, camera_id=None):
     context.scene.display.shading.light = 'STUDIO'
     context.scene.display.shading.color_type = 'SINGLE'
 
+    render_layer = context.view_layer
+    original_combined = render_layer.use_pass_combined
+
+    # Enable combined pass for Workbench
+    render_layer.use_pass_combined = True
+
     # Set up output nodes (Compositor setup remains the same)
     context.scene.use_nodes = True
     nodes = context.scene.node_tree.nodes
@@ -346,6 +352,9 @@ def export_render(context, camera_id=None):
         for mat in materials:
             if mat != original_active_material[obj]:
                 obj.data.materials.append(mat)
+
+    # Restore original render settings
+    render_layer.use_pass_combined = original_combined
 
     # Clean up temporary materials
     # Use a while loop to safely remove materials while iterating
