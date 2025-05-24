@@ -36,6 +36,33 @@ classes = [
 def update_combined(self, context): # Combined with load_handler to load controlnet unit on first setup
     update_parameters(self, context)
     load_handler(None)
+
+    # Checkpoint model reset
+    current_checkpoint = context.scene.model_name
+    checkpoint_items = update_model_list(self, context)
+    valid_checkpoint_ids = {item[0] for item in checkpoint_items}
+
+    placeholder_id = 'NONE_AVAILABLE'
+
+    if current_checkpoint not in valid_checkpoint_ids:
+        if placeholder_id in valid_checkpoint_ids:
+            context.scene.model_name = placeholder_id
+        elif checkpoint_items: # If no placeholder but other items, pick first
+            context.scene.model_name = checkpoint_items[0][0]
+
+    # LoRA unit reset
+    if hasattr(context.scene, 'lora_units'):
+        lora_items = get_lora_models(self, context)
+        valid_lora_ids = {item[0] for item in lora_items}
+
+        for id, lora_unit in enumerate(context.scene.lora_units):
+            if lora_unit.model_name not in valid_lora_ids or lora_unit.model_name == "NONE_AVAILABLE":
+                # Remove the unit
+                context.scene.lora_units.remove(id)
+    # Check if the current LoRA unit index is valid
+    if context.scene.lora_units_index >= len(context.scene.lora_units) or context.scene.lora_units_index < 0:
+        context.scene.lora_units_index = max(0, len(context.scene.lora_units) - 1)
+
     return None
 
 class StableGenAddonPreferences(bpy.types.AddonPreferences):
@@ -196,9 +223,6 @@ def update_model_list(self, context):
         all_model_items.append(
             get_models_from_directory(comfy_ckpts_path, ('.safetensors', '.ckpt', '.pth'), "Checkpoint")
         )
-    else: # Add placeholder if ComfyUI dir itself is not set
-        all_model_items.append([("NO_COMFYUI_DIR_CKPT", "ComfyUI Dir Not Set (Checkpoints)", "Set in Prefs")])
-
 
     # 2. Scan External Checkpoints Path
     if external_ckpts_dir and os.path.isdir(external_ckpts_dir):
@@ -320,8 +344,6 @@ def get_lora_models(self, context):
         all_lora_items.append(
             get_models_from_directory(comfy_loras_path, ('.safetensors', '.ckpt', '.pt', '.pth'), "LoRA")
         )
-    else: # Add placeholder if ComfyUI dir itself is not set
-        all_lora_items.append([("NO_COMFYUI_DIR_LORA", "ComfyUI Dir Not Set (LoRAs)", "Set in Prefs")])
 
 
     # 2. Scan External LoRAs Path
@@ -1199,6 +1221,18 @@ def register():
         default=False,
         update=update_parameters
     )
+
+    bpy.types.Scene.texture_objects = bpy.props.EnumProperty(
+        name="Objects to Texture",
+        description="Select the objects to texture",
+        items=[
+            ('all', 'All Visible', 'Texture all visible objects in the scene'),
+            ('selected', 'Selected', 'Texture only selected objects'),
+        ],
+        default='all',
+        update=update_parameters
+    )
+
     # IPADAPTER parameters
 
     bpy.types.Scene.controlnet_units = bpy.props.CollectionProperty(type=ControlNetUnit)
@@ -1289,6 +1323,7 @@ def unregister():
     del bpy.types.Scene.project_only
     del bpy.types.Scene.early_priority_strength
     del bpy.types.Scene.early_priority
+    del bpy.types.Scene.texture_objects
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

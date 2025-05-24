@@ -6,7 +6,7 @@ from .utils import get_last_material_index, get_file_path, get_dir_path
 from .render_tools import prepare_baking, bake_texture, unwrap
 from mathutils import Vector
 
-def project_image(context, mat_id, stop_index=1000000):
+def project_image(context, to_project, mat_id, stop_index=1000000):
     """     
     Projects an image onto all mesh objects using UV Project Modifier.     
     """
@@ -141,18 +141,13 @@ def project_image(context, mat_id, stop_index=1000000):
     cameras = [obj for obj in context.scene.objects if obj.type == 'CAMERA']
     cameras.sort(key=lambda x: x.name)
     
-    # The image is saved as png binary in the image variable
-    stage_ref = "Projecting images (this may take a while)..."
-    if context.scene.generation_method == 'sequential' and stop_index > 0:
-        stage_ref = f"Editing node tree..."
     # Force refresh of the UI
     for area in context.screen.areas:
         area.tag_redraw()
     
     # Apply projection to all mesh objects for each camera
     for i, camera in enumerate(cameras):
-        object_Mesh = [obj for obj in context.scene.objects if obj.type == 'MESH']
-        for x, obj in enumerate(object_Mesh):
+        for x, obj in enumerate(to_project):
             # We can skip the UV Projection step in sequential mode for i > 0
             if context.scene.generation_method != 'sequential' or stop_index == 0 or context.scene.bake_texture:
                 # Deselect all objects
@@ -232,9 +227,7 @@ def project_image(context, mat_id, stop_index=1000000):
                     simple_project_bake(context, i, obj, mat_id)
                 obj.data.uv_layers.remove(obj.data.uv_layers[-1]) # Remove the last UV map
 
-    for obj in context.scene.objects:
-        if obj.type != 'MESH':
-            continue
+    for obj in to_project:
 
         # Deselect all objects
         bpy.ops.object.select_all(action='DESELECT')

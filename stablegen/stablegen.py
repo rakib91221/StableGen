@@ -313,6 +313,7 @@ class StableGenPanel(bpy.types.Panel):
                 split = params_container.split(factor=0.25)
                 split.label(text="Checkpoint:")
                 split.prop(scene, "model_name", text="")
+                
 
             # Split for model architecture
             split = params_container.split(factor=0.5)
@@ -323,6 +324,11 @@ class StableGenPanel(bpy.types.Panel):
             split = params_container.split(factor=0.5)
             split.label(text="Generation Mode:")
             split.prop(scene, "generation_method", text="")
+
+            # Split for object selection
+            split = params_container.split(factor=0.5)
+            split.label(text="Target Objects:")
+            split.prop(scene, "texture_objects", text="")
 
         # --- Helper to create collapsible sections ---
         def draw_collapsible_section(parent_layout, toggle_prop_name, title, icon="NONE"):

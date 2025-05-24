@@ -87,7 +87,7 @@ def apply_uv_inpaint_texture(context, obj, baked_image_path):
     # Connect UV map node to texture node
     links.new(uv_map_node.outputs["UV"], tex_node.inputs["Vector"])
 
-def export_emit_image(context, camera_id=None, bg_color=(0.5, 0.5, 0.5), view_transform='Standard'):
+def export_emit_image(context, to_export, camera_id=None, bg_color=(0.5, 0.5, 0.5), view_transform='Standard'):
         """     
         Exports a emit-only render of the scene from a camera's perspective.         
         :param context: Blender context.         
@@ -102,58 +102,55 @@ def export_emit_image(context, camera_id=None, bg_color=(0.5, 0.5, 0.5), view_tr
         original_materials = {}
         original_active_material = {}
         temporary_materials = {}
-
-        use_emission = True
         
         # Check if there is BSDF applied
         
         # We need to temporarily disconnect BDSF nodes and connect their inputs directly to the output
        
-        for obj in context.scene.objects:
-            if obj.type == 'MESH':
-                # Store original materials
-                original_materials[obj] = list(obj.data.materials)
-                original_active_material[obj] = obj.active_material
+        for obj in to_export:
+            # Store original materials
+            original_materials[obj] = list(obj.data.materials)
+            original_active_material[obj] = obj.active_material
+        
+            # Copy active material and switch to it
+            mat = obj.active_material
+            if not mat:
+                continue
+            mat_copy = mat.copy()
+
+            # Clear materials and assign temp material
+            obj.data.materials.clear()
+            obj.data.materials.append(mat_copy)
             
-                # Copy active material and switch to it
-                mat = obj.active_material
-                if not mat:
-                    continue
-                mat_copy = mat.copy()
+            # Store the temporary material for later deletion
+            temporary_materials[obj] = mat_copy
 
-                # Clear materials and assign temp material
-                obj.data.materials.clear()
-                obj.data.materials.append(mat_copy)
+            # Enable use of nodes
+            mat_copy.use_nodes = True
+            nodes = mat_copy.node_tree.nodes
+            links = mat_copy.node_tree.links
+
+            # Find the output node
+            output = None
+            for node in nodes:
+                if node.type == 'OUTPUT_MATERIAL':
+                    output = node
+                    break
                 
-                # Store the temporary material for later deletion
-                temporary_materials[obj] = mat_copy
-
-                # Enable use of nodes
-                mat_copy.use_nodes = True
-                nodes = mat_copy.node_tree.nodes
-                links = mat_copy.node_tree.links
-
-                # Find the output node
-                output = None
-                for node in nodes:
-                    if node.type == 'OUTPUT_MATERIAL':
-                        output = node
-                        break
-                    
-                  # Check the type of the node which connects to output
-                before_output = output.inputs[0].links[0].from_node
-                if before_output.type == 'BSDF_PRINCIPLED':
-                    # Find the last color mix node
-                    color_mix = output.inputs[0].links[0].from_node.inputs[0].links[0].from_node
-                else:
-                    # Already a color mix node
-                    color_mix = before_output
-                    continue
-
+                # Check the type of the node which connects to output
+            before_output = output.inputs[0].links[0].from_node
+            if before_output.type == 'BSDF_PRINCIPLED':
                 # Find the last color mix node
                 color_mix = output.inputs[0].links[0].from_node.inputs[0].links[0].from_node
-                # Connect the color mix node directly to the output
-                links.new(color_mix.outputs[0], output.inputs[0])
+            else:
+                # Already a color mix node
+                color_mix = before_output
+                continue
+
+            # Find the last color mix node
+            color_mix = output.inputs[0].links[0].from_node.inputs[0].links[0].from_node
+            # Connect the color mix node directly to the output
+            links.new(color_mix.outputs[0], output.inputs[0])
                 
         output_dir = get_dir_path(context, "inpaint")["visibility"] if "visibility" in str(camera_id) else get_dir_path(context, "inpaint")["render"]
         output_file = f"render{camera_id}" if camera_id is not None else "render"
@@ -474,7 +471,7 @@ def expand_mask_to_blocks(mask_file_path, block_size=8):
         return None
 
 
-def export_visibility(context, obj=None, camera_visibility=None):
+def export_visibility(context, to_export, obj=None, camera_visibility=None):
     """     
     Exports the visibility of the mesh by temporarily altering the shading nodes.
     :param context: Blender context.
@@ -594,10 +591,10 @@ def export_visibility(context, obj=None, camera_visibility=None):
         return True
     
     # Prepare the material
-    mesh_objects = [obj for obj in context.scene.objects if obj.type == 'MESH']
+
     if not obj:
         # Prepare for all objects
-        for obj in mesh_objects:
+        for obj in to_export:
             if not prepare_material(obj):
                 return False
     else:
@@ -625,8 +622,7 @@ def export_visibility(context, obj=None, camera_visibility=None):
         camera_render_index = (camera_visibility_index + 1) % len(cameras)
         camera_render = cameras[camera_render_index]
         context.scene.camera = camera_render
-        export_emit_image(context, camera_id=f"{camera_render_index}_visibility", bg_color=(1, 1, 1), view_transform='Raw')
-        ### if camera_index == 1: return False # test
+        export_emit_image(context, to_export, camera_id=f"{camera_render_index}_visibility", bg_color=(1, 1, 1), view_transform='Raw')
 
     # Restore original materials
     for obj, materials in original_materials.items():
@@ -1317,7 +1313,10 @@ class BakeTextures(bpy.types.Operator):
         :param event: Blender event.         
         :return: {'RUNNING_MODAL'}     
         """
-        self._objects = [obj for obj in context.scene.objects if obj.type == 'MESH']
+        if context.scene.texture_objects == 'all':
+            self._objects = [obj for obj in context.scene.objects if obj.type == 'MESH']
+        else: # 'selected'
+            self._objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
         self._current_index = 0
         self._phase = 'unwrap'
         self._total_objects = len(self._objects)

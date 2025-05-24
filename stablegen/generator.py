@@ -66,10 +66,14 @@ class Reproject(bpy.types.Operator):
         :param context: Blender context.         
         :return: {'FINISHED'}     
         """
+        if context.scene.texture_objects == 'all':
+            to_texture = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+        else: # selected
+            to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+
         # Search for largest material id
-        meshes = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
         max_id = -1
-        for obj in meshes:
+        for obj in to_texture:
             mat_id = get_last_material_index(obj)
             if mat_id > max_id:
                 max_id = mat_id
@@ -144,6 +148,8 @@ class ComfyUIGenerate(bpy.types.Operator):
     _grid_width = 0
     _grid_height = 0
     _material_id = -1
+    _to_texture = None
+    _original_visibility = None
     proceed_with_high_res: bpy.props.BoolProperty(default=False)
 
     # Add properties to track progress
@@ -285,43 +291,53 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         uv_slots_needed = len(self._cameras)
 
+        if context.scene.texture_objects == 'selected':
+            self._to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+            # If empty, cancel the operation
+            if not self._to_texture:
+                self.report({'ERROR'}, "No mesh objects selected for texturing.")
+                context.scene.generation_status = 'idle'
+                ComfyUIGenerate._is_running = False
+                return {'CANCELLED'}
+        else: # all
+            self._to_texture = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+
         # Find all mesh objects, check their material ids and store the highest one
-        for obj in bpy.context.scene.objects:
-            if obj.type == 'MESH':
-                for slot in obj.material_slots:
-                    material_id = get_last_material_index(obj)
-                    if (material_id > self._material_id):
-                        self._material_id = material_id
-                # Check if there are enough UV map slots
-                if not context.scene.bake_texture and context.scene.generation_method != 'uv_inpaint':
-                    if not context.scene.overwrite_material or (context.scene.generation_method == 'refine' and context.scene.refine_preserve):
-                        if 8 - len(obj.data.uv_layers) < uv_slots_needed:
+        for obj in self._to_texture:
+            for slot in obj.material_slots:
+                material_id = get_last_material_index(obj)
+                if (material_id > self._material_id):
+                    self._material_id = material_id
+            # Check if there are enough UV map slots
+            if not context.scene.bake_texture and context.scene.generation_method != 'uv_inpaint':
+                if not context.scene.overwrite_material or (context.scene.generation_method == 'refine' and context.scene.refine_preserve):
+                    if 8 - len(obj.data.uv_layers) < uv_slots_needed:
+                        self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
+                        context.scene.generation_status = 'idle'
+                        ComfyUIGenerate._is_running = False
+                        return {'CANCELLED'}
+                else:
+                    # Make a set to count unique uv maps
+                    uv_maps = set()
+                    mesh = obj.data
+                    uv_maps = [uv_layer.name for uv_layer in mesh.uv_layers]
+                    if len(uv_maps) == 1:
+                        # Probably a baked texture, check if there is enough uv slots
+                        if 8 - len(obj.data.uv_layers) - 1 < uv_slots_needed:
                             self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
                             context.scene.generation_status = 'idle'
                             ComfyUIGenerate._is_running = False
                             return {'CANCELLED'}
-                    else:
-                        # Make a set to count unique uv maps
-                        uv_maps = set()
-                        mesh = obj.data
-                        uv_maps = [uv_layer.name for uv_layer in mesh.uv_layers]
-                        if len(uv_maps) == 1:
-                            # Probably a baked texture, check if there is enough uv slots
-                            if 8 - len(obj.data.uv_layers) - 1 < uv_slots_needed:
-                                self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
-                                context.scene.generation_status = 'idle'
-                                ComfyUIGenerate._is_running = False
-                                return {'CANCELLED'}
-                        elif 8 - len(obj.data.uv_layers) + len(uv_maps) < uv_slots_needed:
-                                print(f"8 - {len(obj.data.uv_layers)} + {len(uv_maps)} < {uv_slots_needed}")
-                                self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
-                                context.scene.generation_status = 'idle'
-                                ComfyUIGenerate._is_running = False
-                                return {'CANCELLED'}
-                            
-                else:
-                    if 8 - len(obj.data.uv_layers) < 1:
-                        self.report({'ERROR'}, "Not enough UV map slots for baking. At least 1 slot is required.")
+                    elif 8 - len(obj.data.uv_layers) + len(uv_maps) < uv_slots_needed:
+                            print(f"8 - {len(obj.data.uv_layers)} + {len(uv_maps)} < {uv_slots_needed}")
+                            self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
+                            context.scene.generation_status = 'idle'
+                            ComfyUIGenerate._is_running = False
+                            return {'CANCELLED'}
+                        
+            else:
+                if 8 - len(obj.data.uv_layers) < 1:
+                    self.report({'ERROR'}, "Not enough UV map slots for baking. At least 1 slot is required.")
 
         if not context.scene.overwrite_material or self._material_id == -1 or (context.scene.generation_method == 'refine' and context.scene.refine_preserve):
             self._material_id += 1
@@ -382,31 +398,37 @@ class ComfyUIGenerate(bpy.types.Operator):
         if context.scene.generation_method == 'grid':
             self._threads_left = 1
         if context.scene.generation_method == 'uv_inpaint':
-            mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-            self._threads_left = len(mesh_objects)
+            self._threads_left = len(self._to_texture)
         else:
             self._threads_left = len(self._cameras)
-        
+
+        self._original_visibility = {}
+        if context.scene.texture_objects == 'selected':
+            # Hide unselected objects for rendering
+            for obj in bpy.context.scene.objects:
+                if obj.type == 'MESH' and obj not in self._to_texture:
+                    # Save original visibility
+                    self._original_visibility[obj.name] = obj.hide_render
+                    obj.hide_render = True
 
         # Refine mode preparation
         if context.scene.generation_method == 'refine':
             for i, camera in enumerate(self._cameras):
                 bpy.context.scene.camera = camera
-                export_emit_image(context, camera_id=i)
+                export_emit_image(context, self._to_texture, camera_id=i)
 
         # UV inpainting mode preparation
         if context.scene.generation_method == 'uv_inpaint':
             # Check if there are baked textures for all objects
-            mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
             
             if self.show_prompt_dialog:
                 # Start the prompt collection process with the first object
                 if not self._object_prompts:  # Only if prompts haven't been collected
-                    self.current_object_name = mesh_objects[0].name
+                    self.current_object_name = self._to_texture[0].name
                     return context.window_manager.invoke_props_dialog(self, width=400)
             
             # Continue with normal execution if all prompts are collected
-            for obj in mesh_objects:
+            for obj in self._to_texture:
                 # Use get_file_path to check for baked texture existence
                 baked_texture_path = get_file_path(context, "baked", object_name=obj.name)
                 if not os.path.exists(baked_texture_path):
@@ -433,7 +455,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             if context.scene.refine_images:
                 self._total_images += len(self._cameras)  # Add refinement steps
         elif context.scene.generation_method == 'uv_inpaint':
-            self._total_images = len(mesh_objects)
+            self._total_images = len(self._to_texture)
 
         # Add modal timer
         context.window_manager.modal_handler_add(self)
@@ -462,6 +484,11 @@ class ComfyUIGenerate(bpy.types.Operator):
             if not self._thread.is_alive():
                 context.window_manager.event_timer_remove(self._timer)
                 ComfyUIGenerate._is_running = False
+                # Restore original visibility for non-selected objects
+                if context.scene.texture_objects == 'selected':
+                    for obj in bpy.context.scene.objects:
+                        if obj.type == 'MESH' and obj.name in self._original_visibility:
+                            obj.hide_render = self._original_visibility[obj.name]
                 if self._error:
                     if self._error == "'25'" or self._error == "'111'":
                         # Probably canceled by user, quietly return
@@ -498,16 +525,15 @@ class ComfyUIGenerate(bpy.types.Operator):
             
             # Handle prompt collection for UV inpainting
             if context.scene.generation_method == 'uv_inpaint' and self.show_prompt_dialog:
-                mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-                current_index = next((i for i, obj in enumerate(mesh_objects) 
+                current_index = next((i for i, obj in enumerate(self._to_texture) 
                                     if obj.name == self.current_object_name), -1)
                 
                 # Store the current prompt
                 self._object_prompts[self.current_object_name] = self.current_object_prompt
                 
                 # Move to next object or finish
-                if current_index < len(mesh_objects) - 1:
-                    self.current_object_name = mesh_objects[current_index + 1].name
+                if current_index < len(self._to_texture) - 1:
+                    self.current_object_name = self._to_texture[current_index + 1].name
                     self.current_object_prompt = ""
                     return context.window_manager.invoke_props_dialog(self, width=400)
                 else:
@@ -539,10 +565,6 @@ class ComfyUIGenerate(bpy.types.Operator):
         """
         self._error = None
         try:
-            mesh_objects = None
-            if (context.scene.generation_method == 'uv_inpaint'):
-                mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-
             depth_path = None
             canny_path = None
             normal_path = None
@@ -571,7 +593,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                         normal_path = get_file_path(context, "controlnet", subtype="normal", camera_id=camera_id) if camera_id is not None else get_file_path(context, "controlnet", subtype="normal")
                     else:
                         # Get paths for UV inpainting for the current object
-                        current_obj_name = mesh_objects[self._current_image].name
+                        current_obj_name = self._to_texture[self._current_image].name
                         mask_path = get_file_path(context, "uv_inpaint", subtype="visibility", object_name=current_obj_name)
                         render_path = get_file_path(context, "baked", object_name=current_obj_name) # Use baked texture as input render
                     
@@ -612,7 +634,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                     
                     # Save the generated image using new path structure
                     if context.scene.generation_method == 'uv_inpaint':
-                        image_path = get_file_path(context, "generated_baked", object_name=mesh_objects[self._current_image].name, material_id=self._material_id)
+                        image_path = get_file_path(context, "generated_baked", object_name=self._to_texture[self._current_image].name, material_id=self._material_id)
                     elif camera_id is not None:
                         image_path = get_file_path(context, "generated", camera_id=camera_id, material_id=self._material_id)
                     else: # Grid mode initial generation
@@ -646,11 +668,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                     if context.scene.generation_method == 'sequential':
                         def image_project_callback():
                             redraw_ui(context)
-                            project_image(context, self._material_id, stop_index=self._current_image)
+                            project_image(context, self._to_texture, self._material_id, stop_index=self._current_image)
                             if self._current_image < len(self._cameras) - 1:
                                 next_camera_id = self._current_image + 1
-                                export_visibility(context, camera_visibility=self._cameras[self._current_image]) # Export mask for current view
-                                export_emit_image(context, camera_id=next_camera_id, bg_color=context.scene.fallback_color) # Export render for next view
+                                export_visibility(context, self._to_texture, camera_visibility=self._cameras[self._current_image]) # Export mask for current view
+                                export_emit_image(context, self._to_texture, camera_id=next_camera_id, bg_color=context.scene.fallback_color) # Export render for next view
                             # Set the event to signal the end of the process
                             self._wait_event.set()
                             return None
@@ -721,12 +743,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                 self._stage = "Baking Textures & Projecting"
             redraw_ui(context)
             if context.scene.generation_method != 'uv_inpaint':
-                project_image(context, self._material_id)
+                project_image(context, self._to_texture, self._material_id)
             else:
                 # Apply the UV inpainted textures to each mesh
                 from .render_tools import apply_uv_inpaint_texture
-                mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-                for obj in mesh_objects:
+                for obj in self._to_texture:
                     texture_path = get_file_path(
                         context, "generated_baked", object_name=obj.name, material_id=self._material_id
                     )
@@ -1781,9 +1802,11 @@ class ComfyUIGenerate(bpy.types.Operator):
         if context.scene.generation_method == 'uv_inpaint':
             # Reset object prompts on every run
             self._object_prompts = {}
-            self._mesh_objects = [obj.name for obj in bpy.context.scene.objects if obj.type == 'MESH']
+            self._to_texture = [obj.name for obj in bpy.context.scene.objects if obj.type == 'MESH']
+            if context.scene.texture_objects == 'selected':
+                self._to_texture = [obj.name for obj in bpy.context.selected_objects if obj.type == 'MESH']
             self.mesh_index = 0
-            self.current_object_name = self._mesh_objects[0] if self._mesh_objects else ""
+            self.current_object_name = self._to_texture[0] if self._to_texture else ""
             # If "Ask for object prompts" is disabled, don’t prompt per object
             if not context.scene.ask_object_prompts:
                 self.show_prompt_dialog = False
