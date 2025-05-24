@@ -1303,6 +1303,10 @@ class BakeTextures(bpy.types.Operator):
         if operator:
             return False
         
+        addon_prefs = context.preferences.addons[__package__].preferences
+        if not os.path.exists(addon_prefs.output_dir):
+            return False
+        
         # Check if there are any textures to bake
         return True
 

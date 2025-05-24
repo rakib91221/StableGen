@@ -256,7 +256,12 @@ class StableGenPanel(bpy.types.Panel):
                 action_row.enabled = False
         
         bake_row = layout.row()
-        bake_row.operator("object.bake_textures", text="Bake Textures", icon="RENDER_STILL")
+        if config_error_message:
+            bake_row.operator("object.bake_textures", text="Cannot Bake: " + config_error_message, icon="X")
+            bake_row.enabled = False
+        else:
+            bake_row.operator("object.bake_textures", text="Bake Textures", icon="RENDER_STILL")
+            bake_row.enabled = True
         bake_operator = next((op for win in context.window_manager.windows for op in win.modal_operators if op.bl_idname == 'OBJECT_OT_bake_textures'), None)
         if bake_operator:
             bake_progress_col = layout.column()
@@ -792,7 +797,12 @@ class StableGenPanel(bpy.types.Panel):
         row.operator("object.curves_to_mesh", text="Convert Curves to Mesh", icon="CURVE_DATA")
         
         row = tools_box.row()
-        row.operator("object.export_orbit_gif", text="Export Orbit GIF/MP4", icon="RENDER_ANIMATION")
+        if config_error_message:
+            row.enabled = False
+            row.operator("object.export_orbit_gif", text=f"Cannot Export: {config_error_message}", icon="ERROR")
+        else:
+            row.enabled = True
+            row.operator("object.export_orbit_gif", text="Export Orbit GIF/MP4", icon="RENDER_ANIMATION")
 
         if width_mode == 'narrow':
             row = tools_box.row()
