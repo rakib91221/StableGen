@@ -14,7 +14,7 @@ StableGen is an open-source Blender plugin designed to seamlessly integrate adva
 StableGen empowers 3D artists by bringing cutting-edge AI texturing capabilities into Blender:
 
 * 🌍 **Scene-Wide Multi-Mesh Texturing:**
-    * Don't just texture one mesh at a time! StableGen is designed to apply textures to **all visible mesh objects in your scene simultaneously** from your defined camera viewpoints.
+    * Don't just texture one mesh at a time! StableGen is designed to apply textures to **all mesh objects in your scene simultaneously** from your defined camera viewpoints. Alternatively, you can choose to texture only selected objects.
     * Achieve a cohesive look across entire environments or collections of assets in a single generation pass.
     * Ideal for concept art, look development for complex scenes, and batch-texturing asset libraries.
 * 🎨 **Multi-View Consistency:**
@@ -110,7 +110,7 @@ StableGen acts as an intuitive interface within Blender that communicates with a
 
 ## 💻 System Requirements
 
-* **Blender:** Version 4.0 or newer.
+* **Blender:** Version 4.2 or newer.
 * **Operating System:** Windows 10/11 or Linux.
 * **GPU:** **NVIDIA GPU with CUDA is recommended** for ComfyUI. For further details, check ComfyUI's github page: [https://github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI).
 * **ComfyUI:** A working installation of ComfyUI. StableGen uses this as its backend.
@@ -214,7 +214,7 @@ StableGen provides a comprehensive interface for controlling your AI texturing p
 
 These are the main operational buttons and initial setup tools, generally found near the top of the StableGen panel:
 
-* **Generate / Cancel Generation (Main Button):** This is the primary button to start the AI texture generation process for all visible meshes based on your current settings. It communicates with the ComfyUI backend. While processing, the button changes to "Cancel Generation," allowing you to stop the current task. Progress bars will appear below this button during generation.
+* **Generate / Cancel Generation (Main Button):** This is the primary button to start the AI texture generation process for meshe objects based on your current settings. It communicates with the ComfyUI backend. While processing, the button changes to "Cancel Generation," allowing you to stop the current task. Progress bars will appear below this button during generation.
 * **Bake Textures:** Converts the dynamic, multi-projection material StableGen creates on your meshes into a single, standard UV-mapped image texture per object. This is essential for exporting or simplifying scenes. You can set the resolution and UV unwrapping method for the bake. This option is crucial for finalizing your AI-generated textures into a portable format.
 * **Add Cameras:** Helps you quickly set up multiple viewpoints. It creates a circular array of Blender cameras around the active object (if "Object" center type is chosen) or the current 3D view center. You can specify the number of cameras and interactively adjust their positions before finalizing.
 * **Collect Camera Prompts:** Cycles through all cameras in your scene, allowing you to type a specific descriptive text prompt for each viewpoint (e.g., "front view," "close-up on face"). These per-camera prompts are used in conjunction with the main prompt if `Use camera prompts` is enabled in `Viewpoint Blending Settings`.
@@ -240,6 +240,7 @@ These are your primary controls for defining the generation:
     * `Generate Using Grid`: Combines all views into a grid for a single generation pass, with an optional refinement step.
     * `Refine/Restyle Texture (Img2Img)`: Uses the current texture as input for an image-to-image process.
     * `UV Inpaint Missing Areas`: Fills untextured areas on a UV map via inpainting.
+* **Target Objects:** Choose whether to texture all visible mesh objects or only selected ones.
 
 ### Advanced Parameters (Collapsible Sections)
 
@@ -322,7 +323,7 @@ Encountering issues? Here are some common fixes. Always check the **Blender Syst
     * Ensure adequate camera coverage and appropriate `Discard-Over Angle`.
     * Fine-tune ControlNet strength. Too low might ignore geometry; too high might yield flat results.
     * For `Sequential` mode, check inpainting and visibility mask settings.
-* **All Visible Meshes Textured:** StableGen textures all visible mesh objects. Hide objects (for rendering) you don't want processed.
+* **All Visible Meshes Textured:** StableGen textures all visible mesh objects by default. You can set `Target Objects` to `Selected` to only texture selected objects.
 
 ---
 
@@ -376,9 +377,9 @@ The open spirit of the AI and open-source communities is what makes projects lik
 Here are some features we plan to implement in the future (in no particular order):
 * **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
-* **FLUX.1-dev Support:** Full support for the FLUX.1-dev, including IPAdapter.
+* **FLUX.1-dev Support:** Full support for the FLUX.1-dev, including IPAdapter, depth control LoRAs, and more.
 * **SD 3.5 Support:** Support for the Stable Diffusion 3.5 architecture.
-* **A new (alternative) blending algorithm for Sequential mode:** An algoritm that will prioritize earlier viewpoints, which should prevent some of the blurriness which can currently occur in some cases.
+* **Remote ComfyUI Support:** Allow connecting to remote ComfyUI servers, enabling distributed processing.
 
 If you have any suggestions, please feel free to open an issue!
 
@@ -390,4 +391,4 @@ Ondřej Sakala
 * Email: `sakalaondrej@gmail.com`
 
 ---
-*Last Updated: May 19, 2025*
+*Last Updated: May 24, 2025*
