@@ -49,5 +49,8 @@ PASTE COMFYUI SERVER LOGS HERE
 
 **StableGen Parameters (if relevant):**
 
+**Is the issue scene specific?**
+Describe whether the issue happen in all Blender scenes, including the default scene with a cube, or if the problem occurred only in a specific scene.
+
 **Additional Context**
 Add any other context about the problem here. For example, have you tried any troubleshooting steps from the `README.md`?
