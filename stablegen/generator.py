@@ -574,8 +574,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 if context.scene.steps != 0:
                     # Generate image without ControlNet if needed
                     if camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
-                            and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first'\
-                                and context.scene.model_architecture == 'sdxl':
+                            and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first':
                         self._stage = "Generating Reference Image"
                         # Don't use ControlNet for the first image if sequential_ipadapter_regenerate_wo_controlnet is enabled
                         if context.scene.sequential_ipadapter_regenerate_wo_controlnet:
@@ -645,8 +644,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                         
                     # Use hack to re-generate the image using IPAdapter to match IPAdapter style
                     if camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
-                            and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first'\
-                                and context.scene.model_architecture == 'sdxl':
+                            and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first':
                                 
                         # Restore original strengths
                         if context.scene.sequential_ipadapter_regenerate_wo_controlnet:
@@ -1860,7 +1858,42 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         # Flux does not use negative prompt or LoRA.
         return prompt, NODES
+    
+    def configure_ipadapter_flux(self, prompt, context, NODES):
+        # Configure IPAdapter if enabled
+        from .util.helpers import ipadapter_flux
+        ipadapter_dict = json.loads(ipadapter_flux)
+        prompt.update(ipadapter_dict)
+        
+        # Label nodes
+        NODES['ipadapter_loader'] = "242"  # IPAdapterFluxLoader
+        NODES['ipadapter'] = "243"          # ApplyIPAdapterFlux
+        NODES['ipadapter_image'] = "244"    # LoadImage for IPAdapter input
+        
+        # Connect IPAdapter output to guider and scheduler
+        prompt[NODES['guider']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        
+        # Set IPAdapter image source based on ipadapter_image
+        if context.scene.use_ipadapter:
+            image_path = bpy.path.abspath(context.scene.ipadapter_image)
+            prompt[NODES['ipadapter_image']]["inputs"]["image"] = image_path
+        elif context.scene.sequential_ipadapter:
+            if context.scene.sequential_ipadapter_mode == 'first':
+                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=0, material_id=self._material_id)
+            else:
+                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=self._current_image - 1, material_id=self._material_id)
 
+        # Connect ipadapter image to the input
+        prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
+        
+        # Configure IPAdapter settings
+        prompt[NODES['ipadapter']]["inputs"]["weight"] = context.scene.ipadapter_strength
+        prompt[NODES['ipadapter']]["inputs"]["start_percent"] = context.scene.ipadapter_start
+        prompt[NODES['ipadapter']]["inputs"]["end_percent"] = context.scene.ipadapter_end
+        
+        # There is no weight type for Flux IPAdapter
+        
     def generate_flux(self, context, depth_path=None, canny_path=None, normal_path=None):
         """Generates an image using Flux 1.
         Similar in structure to generate() but uses Flux nodes, skips negative prompt and LoRA.
@@ -1874,6 +1907,10 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt, NODES = self.create_base_prompt_flux(context)
         
         self._configure_resolution(prompt, context, NODES)
+        
+        # Configure IPAdapter for Flux if enabled
+        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+            self.configure_ipadapter_flux(prompt, context, NODES)
 
         prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
@@ -2023,6 +2060,10 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         # Initialize the img2img prompt template for Flux
         prompt, NODES = self._create_img2img_base_prompt_flux(context)
+        
+        # Configure IPAdapter for Flux if enabled
+        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+            self.configure_ipadapter_flux(prompt, context, NODES)
         
         # Configure based on generation method
         self._configure_refinement_mode_flux(prompt, context, render_path, mask_path, NODES)

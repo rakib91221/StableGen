@@ -1167,3 +1167,51 @@ prompt_text_img2img_flux = """ {
   }
 }
 """
+
+ipadapter_flux = """
+{
+  "242": {
+      "inputs": {
+        "ipadapter": "ip-adapter.bin",
+        "clip_vision": "google/siglip-so400m-patch14-384",
+        "provider": "cuda"
+      },
+      "class_type": "IPAdapterFluxLoader",
+      "_meta": {
+        "title": "Load IPAdapter Flux Model"
+      }
+    },
+  "243": {
+    "inputs": {
+      "weight": 1,
+      "start_percent": 0,
+      "end_percent": 1,
+      "model": [
+        "12",
+        0
+      ],
+      "ipadapter_flux": [
+        "242",
+        0
+      ],
+      "image": [
+        "244",
+        0
+      ]
+    },
+    "class_type": "ApplyIPAdapterFlux",
+    "_meta": {
+      "title": "Apply IPAdapter Flux Model"
+    }
+  },
+  "244": {
+    "inputs": {
+      "image": "00010-1613580828.jpeg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}
+"""

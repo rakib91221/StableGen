@@ -498,7 +498,7 @@ class StableGenPanel(bpy.types.Panel):
             content_box = draw_collapsible_section(advanced_params_box, "show_image_guidance_settings", "Image Guidance (IPAdapter & ControlNet)", icon="MODIFIER")
             if content_box:
                 # IPAdapter Parameters
-                if scene.model_architecture == 'sdxl' and not scene.generation_method == 'uv_inpaint':
+                if not scene.generation_method == 'uv_inpaint':
                     ipadapter_main_box = content_box.box() # Group IPAdapter settings together
                     row = ipadapter_main_box.row()
                     row.prop(scene, "use_ipadapter", text="Use IPAdapter (External image)", toggle=True, icon="MOD_MULTIRES")
@@ -515,8 +515,9 @@ class StableGenPanel(bpy.types.Panel):
                             row = sub_ip_box.row()
                         row.prop(scene, "ipadapter_end", text="End")
                         split = sub_ip_box.split(factor=0.5)
-                        split.label(text="Weight Type:")
-                        split.prop(scene, "ipadapter_weight_type", text="")
+                        if context.scene.model_architecture == 'sdxl':
+                            split.label(text="Weight Type:")
+                            split.prop(scene, "ipadapter_weight_type", text="")
                 
                 content_box.separator() # Separator between IPAdapter and ControlNet if both are shown
                 # ControlNet Parameters
@@ -637,7 +638,7 @@ class StableGenPanel(bpy.types.Panel):
                         split.prop(scene, "refine_upscale_method", text="")
 
                 # Separate Mode Parameters
-                elif scene.generation_method == 'separate' and scene.model_architecture == 'sdxl':
+                elif scene.generation_method == 'separate':
                     row = mode_specific_outer_box.row()
                     row.alignment = 'CENTER'
                     row.label(text="Separate Mode Parameters", icon='FORCE_FORCE')
@@ -652,8 +653,9 @@ class StableGenPanel(bpy.types.Panel):
                         split.prop(scene, "sequential_ipadapter_mode", text="") 
 
                         split = sub_ip_box_separate.split(factor=0.5) 
-                        split.label(text="Weight Type:")
-                        split.prop(scene, "ipadapter_weight_type", text="") 
+                        if context.scene.model_architecture == 'sdxl':
+                            split.label(text="Weight Type:")
+                            split.prop(scene, "ipadapter_weight_type", text="")
                         
                         row = sub_ip_box_separate.row()
                         row.prop(scene, "ipadapter_strength", text="Strength")
@@ -690,8 +692,9 @@ class StableGenPanel(bpy.types.Panel):
                         split.prop(scene, "sequential_ipadapter_mode", text="") 
 
                         split = sub_ip_box_separate.split(factor=0.5) 
-                        split.label(text="Weight Type:")
-                        split.prop(scene, "ipadapter_weight_type", text="") 
+                        if context.scene.model_architecture == 'sdxl':
+                            split.label(text="Weight Type:")
+                            split.prop(scene, "ipadapter_weight_type", text="")
                         
                         row = sub_ip_box_separate.row()
                         row.prop(scene, "ipadapter_strength", text="Strength")
@@ -746,35 +749,35 @@ class StableGenPanel(bpy.types.Panel):
                                 row = mode_specific_outer_box.row()
                             row.prop(scene, "sequential_factor_smooth_2", text="Smooth Visibility White Point")
                     
-                    if scene.model_architecture == 'sdxl':
-                        row = mode_specific_outer_box.row()
-                        row.prop(scene, "sequential_ipadapter", text="Use IPAdapter for Sequential Mode", toggle=True, icon="MODIFIER")
-                        if scene.sequential_ipadapter:
-                            sub_ip_seq_box = mode_specific_outer_box.box()
-                            
-                            split = sub_ip_seq_box.split(factor=0.5)
-                            split.label(text="Mode:")
-                            split.prop(scene, "sequential_ipadapter_mode", text="")
+                    row = mode_specific_outer_box.row()
+                    row.prop(scene, "sequential_ipadapter", text="Use IPAdapter for Sequential Mode", toggle=True, icon="MODIFIER")
+                    if scene.sequential_ipadapter:
+                        sub_ip_seq_box = mode_specific_outer_box.box()
+                        
+                        split = sub_ip_seq_box.split(factor=0.5)
+                        split.label(text="Mode:")
+                        split.prop(scene, "sequential_ipadapter_mode", text="")
 
-                            split = sub_ip_seq_box.split(factor=0.5)
+                        split = sub_ip_seq_box.split(factor=0.5)
+                        if context.scene.model_architecture == 'sdxl':
                             split.label(text="Weight Type:")
-                            split.prop(scene, "ipadapter_weight_type", text="") 
+                            split.prop(scene, "ipadapter_weight_type", text="")
 
+                        row = sub_ip_seq_box.row()
+                        row.prop(scene, "ipadapter_strength", text="Strength")
+                        if width_mode == 'narrow':
                             row = sub_ip_seq_box.row()
-                            row.prop(scene, "ipadapter_strength", text="Strength")
-                            if width_mode == 'narrow':
+                        row.prop(scene, "ipadapter_start", text="Start")
+                        if width_mode == 'narrow':  
+                            row = sub_ip_seq_box.row()
+                        row.prop(scene, "ipadapter_end", text="End")     
+                        
+                        if context.scene.sequential_ipadapter_mode == 'first':
+                            row = sub_ip_seq_box.row()
+                            row.prop(scene, "sequential_ipadapter_regenerate", text="Regenerate First Image", toggle=True, icon="FILE_REFRESH")
+                            if context.scene.sequential_ipadapter_regenerate:
                                 row = sub_ip_seq_box.row()
-                            row.prop(scene, "ipadapter_start", text="Start")
-                            if width_mode == 'narrow':  
-                                row = sub_ip_seq_box.row()
-                            row.prop(scene, "ipadapter_end", text="End")     
-                            
-                            if context.scene.sequential_ipadapter_mode == 'first':
-                                row = sub_ip_seq_box.row()
-                                row.prop(scene, "sequential_ipadapter_regenerate", text="Regenerate First Image", toggle=True, icon="FILE_REFRESH")
-                                if context.scene.sequential_ipadapter_regenerate:
-                                    row = sub_ip_seq_box.row()
-                                    row.prop(scene, "sequential_ipadapter_regenerate_wo_controlnet", text="Generate reference without ControlNet", toggle=True, icon="HIDE_OFF")   
+                                row.prop(scene, "sequential_ipadapter_regenerate_wo_controlnet", text="Generate reference without ControlNet", toggle=True, icon="HIDE_OFF")   
 
         # --- Tools ---
         layout.separator()
