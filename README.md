@@ -389,6 +389,7 @@ If you have any suggestions, please feel free to open an issue!
 
 Ondřej Sakala
 * Email: `sakalaondrej@gmail.com`
+* X/Twitter: `@sakalond`
 
 ---
 *Last Updated: May 24, 2025*
