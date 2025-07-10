@@ -300,7 +300,8 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
                     output_dir = context.preferences.addons[__package__].preferences.output_dir
                     if not context.scene.bake_texture:
                         image = bpy.data.images.load(get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id))
-                        if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and stop_index == 0 and context.scene.sequential_ipadapter_mode == 'first':
+                        if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate \
+                        and not context.scene.use_ipadapter and stop_index == 0 and context.scene.sequential_ipadapter_mode == 'first' and context.scene.model_architecture == 'sdxl':
                             image = bpy.data.images.load(get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id).replace(".png", "_ipadapter.png"))
                     else:
                         # Use baked texture
@@ -354,7 +355,8 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
             if i <= stop_index:
                 if not context.scene.bake_texture:
                     image = bpy.data.images.load(get_file_path(context, "generated", camera_id=i, material_id=mat_id))
-                    if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and i == 0 and context.scene.sequential_ipadapter_mode == 'first':
+                    if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate \
+                    and not context.scene.use_ipadapter and i == 0 and context.scene.sequential_ipadapter_mode == 'first' and context.scene.model_architecture == 'sdxl':
                         image = bpy.data.images.load(get_file_path(context, "generated", camera_id=i, material_id=mat_id).replace(".png", "_ipadapter.png"))
                 else:
                     # Use baked texture
@@ -531,7 +533,8 @@ def simple_project_bake(context, camera_id, obj, mat_id):
     tex_image = nodes.new("ShaderNodeTexImage")
     
     file_path = get_file_path(context, "generated", camera_id=camera_id, material_id=mat_id)
-    if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and camera_id == 0 and context.scene.sequential_ipadapter_mode == 'first':
+    if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate \
+        and not context.scene.use_ipadapter and camera_id == 0 and context.scene.sequential_ipadapter_mode == 'first' and context.scene.model_architecture == 'sdxl':
         file_path = get_file_path(context, "generated", camera_id=camera_id, material_id=mat_id).replace(".png", "_ipadapter.png")
     
     tex_image.image = bpy.data.images.load(file_path)
