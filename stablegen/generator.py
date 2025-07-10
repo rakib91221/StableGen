@@ -1855,6 +1855,9 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['flux_guidance']]["inputs"]["guidance"] = context.scene.cfg
         prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.sampler
 
+        # Set the model name
+        prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
+
         # Flux does not use negative prompt or LoRA.
         return prompt, NODES
 
@@ -1981,6 +1984,9 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['flux_guidance']]["inputs"]["guidance"] = context.scene.refine_cfg if context.scene.generation_method == 'grid' else context.scene.cfg
         prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.refine_sampler if context.scene.generation_method == 'grid' else context.scene.sampler
         prompt[NODES['scheduler']]["inputs"]["scheduler"] = context.scene.refine_scheduler if context.scene.generation_method == 'grid' else context.scene.scheduler
+
+        # Set the model name
+        prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
         
         # Configure upscale settings
         prompt[NODES['upscale']]["inputs"]["upscale_method"] = context.scene.refine_upscale_method

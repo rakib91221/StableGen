@@ -313,11 +313,10 @@ class StableGenPanel(bpy.types.Panel):
             split.label(text="Prompt:")
             split.prop(scene, "comfyui_prompt", text="")
             
-            if scene.model_architecture == 'sdxl':
-                # Split for model name
-                split = params_container.split(factor=0.25)
-                split.label(text="Checkpoint:")
-                split.prop(scene, "model_name", text="")
+            # Split for model name
+            split = params_container.split(factor=0.25)
+            split.label(text="Checkpoint:")
+            split.prop(scene, "model_name", text="")
                 
 
             # Split for model architecture

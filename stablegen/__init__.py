@@ -219,15 +219,18 @@ def update_model_list(self, context):
 
     # 1. Scan ComfyUI standard checkpoints path
     if comfyui_base_dir and os.path.isdir(comfyui_base_dir):
-        comfy_ckpts_path = os.path.join(comfyui_base_dir, "models", "checkpoints")
+        if context.scene.model_architecture == 'sdxl':
+            comfy_ckpts_path = os.path.join(comfyui_base_dir, "models", "checkpoints")
+        else:
+            comfy_ckpts_path = os.path.join(comfyui_base_dir, "models", "unet") # For FLUX1
         all_model_items.append(
-            get_models_from_directory(comfy_ckpts_path, ('.safetensors', '.ckpt', '.pth'), "Checkpoint")
+            get_models_from_directory(comfy_ckpts_path, ('.safetensors', '.ckpt', '.pth', '.sft'), "Checkpoint")
         )
 
     # 2. Scan External Checkpoints Path
     if external_ckpts_dir and os.path.isdir(external_ckpts_dir):
         all_model_items.append(
-            get_models_from_directory(external_ckpts_dir, ('.safetensors', '.ckpt', '.pth'), "Ext. Checkpoint")
+            get_models_from_directory(external_ckpts_dir, ('.safetensors', '.ckpt', '.pth', '.sft'), "Ext. Checkpoint")
         )
     
     return merge_and_deduplicate_models(all_model_items)
