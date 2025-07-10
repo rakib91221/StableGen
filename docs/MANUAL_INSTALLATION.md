@@ -140,3 +140,22 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
     * **Action:** Download and **rename** to `controlnet_flux1_union_pro.safetensors`.
     * **License:** FLUX-1-dev Non-Commercial License
     * **Size:** ~6.5 GB
+ 
+* **d) FLUX.1 IPAdapter Custom Node (Enables IPAdapter for FLUX)**
+    * **Note:** This is required to use IPAdapter with the FLUX.1 model.
+    1.  Navigate to your ComfyUI custom nodes directory:
+        ```bash
+        cd <YourComfyUIDirectory>/custom_nodes/
+        ```
+    2.  Clone the repository:
+        ```bash
+        git clone [https://github.com/Shakker-Labs/ComfyUI-IPAdapter-Flux.git](https://github.com/Shakker-Labs/ComfyUI-IPAdapter-Flux.git)
+        ```
+    3.  **Restart ComfyUI** after installation.
+
+* **e) FLUX.1 IPAdapter Model**
+    * **Directory:** `<YourComfyUIDirectory>/models/ipadapter-flux/`
+    * **Filename:** `ip-adapter.bin`
+    * **Download URL:** [https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin?download=true](https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin?download=true)
+    * **License:** FLUX-1-dev Non-Commercial License
+    * **Size:** ~6.5 GB
