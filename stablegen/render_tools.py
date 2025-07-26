@@ -41,7 +41,12 @@ def apply_uv_inpaint_texture(context, obj, baked_image_path):
 
     # Traverse from the output input to find a MIX_RGB node with unlinked Color2
     mix_node = None
-    current_node = output_node.inputs[0].links[0].from_node.inputs[0].links[0].from_node
+    before_output = output_node.inputs["Surface"].links[0].from_node
+    if before_output.type == 'BSDF_PRINCIPLED':
+        current_node = output_node.inputs[0].links[0].from_node.inputs[0].links[0].from_node
+    else:
+        # Already a color mix node
+        current_node = before_output
     while current_node:
         # Base case: Found a MIX_RGB node with unlinked Color2 or linked to image texture
         if (current_node.type == 'MIX_RGB' and 

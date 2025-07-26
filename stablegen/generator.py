@@ -438,7 +438,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                     bake_texture(context, obj, texture_resolution=2048, output_dir=get_dir_path(context, "baked"))
                     
                 # Export visibility masks for each object
-                export_visibility(context, obj)
+                export_visibility(context, None, obj)
         
         self.prompt_text = context.scene.comfyui_prompt
 
