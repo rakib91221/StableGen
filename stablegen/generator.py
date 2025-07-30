@@ -274,7 +274,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         # Check if there is at least one ControlNet unit
         controlnet_units = getattr(context.scene, "controlnet_units", [])
-        if not controlnet_units:
+        if not controlnet_units and not (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1'):
             self.report({'ERROR'}, "At least one ControlNet unit is required to run the operator.")
             context.scene.generation_status = 'idle'
             ComfyUIGenerate._is_running = False
@@ -367,7 +367,7 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         if not context.scene.project_only:
             # If there is depth controlnet unit
-            if any(unit["unit_type"] == "depth" for unit in controlnet_units):
+            if any(unit["unit_type"] == "depth" for unit in controlnet_units) or (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1'):
                 if context.scene.generation_method != 'uv_inpaint':
                     # Export depth maps for each camera
                     for i, camera in enumerate(self._cameras):
@@ -1912,10 +1912,44 @@ class ComfyUIGenerate(bpy.types.Operator):
         if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
             self.configure_ipadapter_flux(prompt, context, NODES)
 
-        prompt, final_node = self._build_controlnet_chain_extended(
-            context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
-            {"depth": depth_path, "canny": canny_path, "normal": normal_path}
-        )
+        # Build ControlNet chain if not using Depth LoRA
+        if not context.scene.use_flux_lora:
+            prompt, final_node = self._build_controlnet_chain_extended(
+                context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
+                {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+            )
+        else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
+            final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
+            # Add Required nodes for the FLUX.1-Depth-dev LoRA
+            from .util.helpers import depth_lora_flux
+            depth_lora_dict = json.loads(depth_lora_flux)
+            prompt.update(depth_lora_dict)
+
+            # Label nodes
+            NODES['flux_lora_image'] = "245"  # LoadImage
+            NODES['instruct_pix'] = "246"  # InstructPixToPixConditioning
+            NODES['flux_lora'] = "247"  # LoraLoaderModelOnly
+
+            # Connect nodes 
+            final_node = NODES['instruct_pix'] # To be connected to flux_guidance
+            prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['instruct_pix'], 2]
+
+            # If using ipadapter, set the apply_ipadapter_flux node to use the flux_lora_image
+            if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+                prompt[NODES['ipadapter']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+            else:
+                prompt[NODES['guider']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+
+            # Delete unnecessary nodes
+            if "239" in prompt:
+                del prompt["239"] # SetUnionControlNetType
+            if "30" in prompt:
+                del prompt["30"] # EmptyLatentImage
+
+            # Set the image for the Flux LoRA
+            prompt[NODES['flux_lora_image']]["inputs"]["image"] = depth_path
+
         # Connect final node to FluxGuidance
         prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
         # Note: No negative prompt is connected.
@@ -2062,7 +2096,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt, NODES = self._create_img2img_base_prompt_flux(context)
         
         # Configure IPAdapter for Flux if enabled
-        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+        if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
             self.configure_ipadapter_flux(prompt, context, NODES)
         
         # Configure based on generation method
@@ -2071,9 +2105,51 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Set up image inputs for different controlnet types
         self._refine_configure_images_flux(prompt, depth_path, canny_path, normal_path, render_path, NODES)
         
-        # Build controlnet chain for refinement if needed
+        # Build ControlNet chain if not using Depth LoRA
         if not context.scene.generation_method == 'uv_inpaint':
-            prompt = self._refine_build_controlnet_chain_flux(prompt, context, depth_path, canny_path, normal_path, NODES)
+            if not context.scene.use_flux_lora:
+                prompt= self._refine_build_controlnet_chain_flux(
+                    context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
+                    {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+                )
+            else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
+                final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
+                # Add Required nodes for the FLUX.1-Depth-dev LoRA
+                from .util.helpers import depth_lora_flux
+                depth_lora_dict = json.loads(depth_lora_flux)
+                prompt.update(depth_lora_dict)
+
+                # Label nodes
+                NODES['flux_lora_image'] = "245"  # LoadImage
+                NODES['instruct_pix'] = "246"  # InstructPixToPixConditioning
+                NODES['flux_lora'] = "247"  # LoraLoaderModelOnly
+
+                # Configure InstructPixToPixConditioning inputs to InpaintModelConditioning if using differential diffusion
+                if context.scene.differential_diffusion:
+                    prompt[NODES['instruct_pix']]["inputs"]["positive"] = [NODES['inpaint_conditioning'], 0]
+                    prompt[NODES['instruct_pix']]["inputs"]["negative"] = [NODES['inpaint_conditioning'], 1]
+
+                # Connect nodes 
+                prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [NODES['instruct_pix'], 0]
+                # prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['instruct_pix'], 2] # Not doing since we need to respect the mask
+
+                # If using ipadapter, set the apply_ipadapter_flux node to use the flux_lora_image
+                if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
+                    prompt[NODES['ipadapter']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+                else:
+                    prompt[NODES['guider']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+
+                # Delete unnecessary nodes
+                if "239" in prompt:
+                    del prompt["239"] # SetUnionControlNetType
+                if "30" in prompt:
+                    del prompt["30"] # EmptyLatentImage
+
+                # Set the image for the Flux LoRA
+                prompt[NODES['flux_lora_image']]["inputs"]["image"] = depth_path
         
         # Save prompt for debugging
         with open(os.path.join(output_dir, "prompt_flux_img2img.json"), 'w') as f:

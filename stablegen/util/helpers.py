@@ -1206,7 +1206,7 @@ ipadapter_flux = """
   },
   "244": {
     "inputs": {
-      "image": "00010-1613580828.jpeg"
+      "image": ""
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -1215,3 +1215,56 @@ ipadapter_flux = """
   }
 }
 """
+
+depth_lora_flux = """
+{
+  "245": {
+    "inputs": {
+      "image": ""
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "246": {
+    "inputs": {
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ],
+      "pixels": [
+        "245",
+        0
+      ]
+    },
+    "class_type": "InstructPixToPixConditioning",
+    "_meta": {
+      "title": "InstructPixToPixConditioning"
+    }
+  },
+  "247": {
+    "inputs": {
+      "lora_name": "flux1-depth-dev-lora.safetensors",
+      "strength_model": 1,
+      "model": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  }
+}
+"""
+

@@ -1236,6 +1236,13 @@ def register():
         update=update_parameters
     )
 
+    bpy.types.Scene.use_flux_lora = bpy.props.BoolProperty(
+        name="Use FLUX Depth LoRA",
+        description="Use FLUX.1-Depth-dev LoRA for depth conditioning instead of ControlNet. This disables all ControlNet units.",
+        default=True,
+        update=update_parameters
+    )
+
     # IPADAPTER parameters
 
     bpy.types.Scene.controlnet_units = bpy.props.CollectionProperty(type=ControlNetUnit)
@@ -1249,6 +1256,7 @@ def unregister():
     Unregisters the addon.         
     :return: None     
     """
+    del bpy.types.Scene.use_flux_lora
     del bpy.types.Scene.comfyui_prompt
     del bpy.types.Scene.comfyui_negative_prompt
     del bpy.types.Scene.model_name

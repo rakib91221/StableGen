@@ -500,6 +500,9 @@ class StableGenPanel(bpy.types.Panel):
                 # IPAdapter Parameters
                 if not scene.generation_method == 'uv_inpaint':
                     ipadapter_main_box = content_box.box() # Group IPAdapter settings together
+                    if scene.model_architecture == 'flux1':
+                        row = ipadapter_main_box.row()
+                        row.prop(scene, "use_flux_lora", text="Use Flux Depth LoRA", toggle=True, icon="MODIFIER")
                     row = ipadapter_main_box.row()
                     row.prop(scene, "use_ipadapter", text="Use IPAdapter (External image)", toggle=True, icon="MOD_MULTIRES")
                     if scene.use_ipadapter:
@@ -521,49 +524,50 @@ class StableGenPanel(bpy.types.Panel):
                 
                 content_box.separator() # Separator between IPAdapter and ControlNet if both are shown
                 # ControlNet Parameters
-                ctrl_box_group = content_box.box() # Group ControlNet settings together
-                row = ctrl_box_group.row()
-                row.alignment = 'CENTER'
-                row.label(text="ControlNet Units", icon="NODETREE")
-                for i, unit in enumerate(scene.controlnet_units): 
-                    sub_unit_box = ctrl_box_group.box() # Each unit gets its own box
-                    row = sub_unit_box.row()
-                    row.label(text=f"Unit: {unit.unit_type.replace('_', ' ').title()}", icon="DOT") 
-                    row.alignment = 'LEFT' 
-                    
-                    if width_mode == 'narrow':
-                        split = sub_unit_box.split(factor=0.35, align=True) 
-                    else:
-                        split = sub_unit_box.split(factor=0.2, align=True) 
-                    split.label(text="Model:")
-                    split.prop(unit, "model_name", text="")
-                    
-                    row = sub_unit_box.row()
-                    row.prop(unit, "strength", text="Strength")
-                    if width_mode == 'narrow':
+                if not (scene.model_architecture == 'flux1' and scene.use_flux_lora):
+                    ctrl_box_group = content_box.box() # Group ControlNet settings together
+                    row = ctrl_box_group.row()
+                    row.alignment = 'CENTER'
+                    row.label(text="ControlNet Units", icon="NODETREE")
+                    for i, unit in enumerate(scene.controlnet_units): 
+                        sub_unit_box = ctrl_box_group.box() # Each unit gets its own box
                         row = sub_unit_box.row()
-                    row.prop(unit, "start_percent", text="Start")
-                    if width_mode == 'narrow':
+                        row.label(text=f"Unit: {unit.unit_type.replace('_', ' ').title()}", icon="DOT") 
+                        row.alignment = 'LEFT' 
+                        
+                        if width_mode == 'narrow':
+                            split = sub_unit_box.split(factor=0.35, align=True) 
+                        else:
+                            split = sub_unit_box.split(factor=0.2, align=True) 
+                        split.label(text="Model:")
+                        split.prop(unit, "model_name", text="")
+                        
                         row = sub_unit_box.row()
-                    row.prop(unit, "end_percent", text="End")
-                    
-                    if unit.unit_type == 'canny':
-                        row = sub_unit_box.row()
-                        row.prop(scene, "canny_threshold_low", text="Canny Low")
+                        row.prop(unit, "strength", text="Strength")
                         if width_mode == 'narrow':
                             row = sub_unit_box.row()
-                        row.prop(scene, "canny_threshold_high", text="Canny High")
-                    if hasattr(unit, 'is_union') and unit.is_union: 
-                        row = sub_unit_box.row()
-                        row.prop(unit, "use_union_type", text="Set Union Type", toggle=True, icon="MOD_BOOLEAN")
-                
-                btn_row = ctrl_box_group.row(align=True) 
-                if width_mode == 'wide':
-                    btn_row.operator("stablegen.add_controlnet_unit", text="Add Unit", icon="ADD")
-                    btn_row.operator("stablegen.remove_controlnet_unit", text="Remove Unit", icon="REMOVE")
-                else:
-                    ctrl_box_group.operator("stablegen.add_controlnet_unit", text="Add ControlNet Unit", icon="ADD")
-                    ctrl_box_group.operator("stablegen.remove_controlnet_unit", text="Remove Last ControlNet Unit", icon="REMOVE")
+                        row.prop(unit, "start_percent", text="Start")
+                        if width_mode == 'narrow':
+                            row = sub_unit_box.row()
+                        row.prop(unit, "end_percent", text="End")
+                        
+                        if unit.unit_type == 'canny':
+                            row = sub_unit_box.row()
+                            row.prop(scene, "canny_threshold_low", text="Canny Low")
+                            if width_mode == 'narrow':
+                                row = sub_unit_box.row()
+                            row.prop(scene, "canny_threshold_high", text="Canny High")
+                        if hasattr(unit, 'is_union') and unit.is_union: 
+                            row = sub_unit_box.row()
+                            row.prop(unit, "use_union_type", text="Set Union Type", toggle=True, icon="MOD_BOOLEAN")
+                    
+                    btn_row = ctrl_box_group.row(align=True) 
+                    if width_mode == 'wide':
+                        btn_row.operator("stablegen.add_controlnet_unit", text="Add Unit", icon="ADD")
+                        btn_row.operator("stablegen.remove_controlnet_unit", text="Remove Unit", icon="REMOVE")
+                    else:
+                        ctrl_box_group.operator("stablegen.add_controlnet_unit", text="Add ControlNet Unit", icon="ADD")
+                        ctrl_box_group.operator("stablegen.remove_controlnet_unit", text="Remove Last ControlNet Unit", icon="REMOVE")
 
 
             # --- Inpainting Options (Conditional) ---
