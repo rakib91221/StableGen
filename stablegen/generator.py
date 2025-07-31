@@ -227,9 +227,9 @@ class ComfyUIGenerate(bpy.types.Operator):
         # If UV inpainting and we're in prompt collection mode, collect prompts first.
         if context.scene.generation_method == 'uv_inpaint' and self.show_prompt_dialog:
             self._object_prompts[self.current_object_name] = self.current_object_prompt
-            if self.mesh_index < len(self._mesh_objects) - 1:
+            if self.mesh_index < len(self._to_texture) - 1:
                 self.mesh_index += 1
-                self.current_object_name = self._mesh_objects[self.mesh_index]
+                self.current_object_name = self._to_texture[self.mesh_index]
                 self.current_object_prompt = ""
                 return context.window_manager.invoke_props_dialog(self, width=400)
             else:
@@ -426,7 +426,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 if not self._object_prompts:  # Only if prompts haven't been collected
                     self.current_object_name = self._to_texture[0].name
                     return context.window_manager.invoke_props_dialog(self, width=400)
-            
+                
             # Continue with normal execution if all prompts are collected
             for obj in self._to_texture:
                 # Use get_file_path to check for baked texture existence
@@ -436,6 +436,33 @@ class ComfyUIGenerate(bpy.types.Operator):
                     prepare_baking(context)
                     unwrap(obj, method='pack', overlap_only=True)
                     bake_texture(context, obj, texture_resolution=2048, output_dir=get_dir_path(context, "baked"))
+                
+                # Check if the material is compatible (uses projection shader)
+                active_material = obj.active_material
+                if not active_material or not active_material.use_nodes:
+                    error = True
+                else:
+                    # Check if the last node before the output is a color mix node or a bsdf shader node with a color mix node before it
+                    output_node = None
+                    for node in active_material.node_tree.nodes:
+                        if node.type == 'OUTPUT_MATERIAL':
+                            output_node = node
+                            break
+                    if not output_node:
+                        error = True
+                    else:
+                        # Check if the last node before the output is a color mix node or a bsdf shader node with a color mix node before it
+                        for link in output_node.inputs[0].links:
+                            if link.from_node.type == 'MIX_RGB' or (link.from_node.type == 'BSDF_PRINCIPLED' and any(n.type == 'MIX_RGB' for n in link.from_node.inputs)):
+                                error = False
+                                break
+                        else:
+                            error = True
+                if error:
+                    self.report({'ERROR'}, f"Cannot use UV inpainting with the material of object '{obj.name}': incompatible material. The generated material has to be active.")
+                    context.scene.generation_status = 'idle'
+                    ComfyUIGenerate._is_running = False
+                    return {'CANCELLED'}
                     
                 # Export visibility masks for each object
                 export_visibility(context, None, obj)
