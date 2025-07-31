@@ -1853,6 +1853,13 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['flux_guidance']]["inputs"]["guidance"] = context.scene.cfg
         prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.sampler
 
+        # Replace unet_loader with UNETLoaderGGUF if using GGUF model
+        if ".gguf" in context.scene.model_name:
+            del prompt[NODES['unet_loader']]
+            from .util.helpers import gguf_unet_loader
+            unet_loader_dict = json.loads(gguf_unet_loader)
+            prompt.update(unet_loader_dict)
+
         # Set the model name
         prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
 
@@ -1902,6 +1909,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         server_address = context.preferences.addons[__package__].preferences.server_address
         client_id = str(uuid.uuid4())
         output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
 
         # Build Flux base prompt and node mapping.
         prompt, NODES = self.create_base_prompt_flux(context)
@@ -1953,14 +1962,11 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Connect final node to FluxGuidance
         prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
         # Note: No negative prompt is connected.
-        # Save prompt for debugging.
-        try:
-            with open(os.path.join(output_dir, "prompt_flux.json"), 'w') as f:
-                json.dump(prompt, f, indent=2)
-        except Exception as e:
-            print(f"Failed to save flux prompt: {e}")
-        # Execute generation via websocket.
 
+        # Save prompt for debugging.
+        self._save_prompt_to_file(prompt,  revision_dir)
+
+        # Execute generation via websocket.
         # Execute generation and get results
         ws = self._connect_to_websocket(server_address, client_id)
 
@@ -2056,6 +2062,13 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.refine_sampler if context.scene.generation_method == 'grid' else context.scene.sampler
         prompt[NODES['scheduler']]["inputs"]["scheduler"] = context.scene.refine_scheduler if context.scene.generation_method == 'grid' else context.scene.scheduler
 
+        # Replace unet_loader with UNETLoaderGGUF if using GGUF model
+        if ".gguf" in context.scene.model_name:
+            del prompt[NODES['unet_loader']]
+            from .util.helpers import gguf_unet_loader
+            unet_loader_dict = json.loads(gguf_unet_loader)
+            prompt.update(unet_loader_dict)
+
         # Set the model name
         prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
         
@@ -2091,6 +2104,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         server_address = context.preferences.addons[__package__].preferences.server_address
         client_id = str(uuid.uuid4())
         output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
 
         # Initialize the img2img prompt template for Flux
         prompt, NODES = self._create_img2img_base_prompt_flux(context)
@@ -2152,8 +2167,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 prompt[NODES['flux_lora_image']]["inputs"]["image"] = depth_path
         
         # Save prompt for debugging
-        with open(os.path.join(output_dir, "prompt_flux_img2img.json"), 'w') as f:
-            json.dump(prompt, f)
+        self._save_prompt_to_file(prompt, revision_dir)
         
         # Execute generation and get results
         ws = self._connect_to_websocket(server_address, client_id)

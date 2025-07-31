@@ -1268,3 +1268,17 @@ depth_lora_flux = """
 }
 """
 
+gguf_unet_loader = """
+{
+  "12": {
+    "inputs": {
+      "unet_name": ""
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  }
+}
+"""
+
