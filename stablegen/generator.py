@@ -653,10 +653,16 @@ class ComfyUIGenerate(bpy.types.Operator):
                         self._stage = "Generating Image"
                         context.scene.use_ipadapter = True
                         context.scene.ipadapter_image = image_path
-                        if context.scene.generation_method == "refine":
-                            image = self.refine(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
-                        else:
-                            image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                        if context.scene.model_architecture == "sdxl":
+                            if context.scene.generation_method == "refine":
+                                image = self.refine(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                            else:
+                                image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                        elif context.scene.model_architecture == "flux1":
+                            if context.scene.generation_method == "refine":
+                                image = self.refine_flux(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                            else:
+                                image = self.generate_flux(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
                         context.scene.use_ipadapter = False
                         image_path = image_path.replace(".png", "_ipadapter.png")
                         with open(image_path, 'wb') as f:
