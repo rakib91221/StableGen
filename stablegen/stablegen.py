@@ -86,6 +86,8 @@ def update_parameters(self, context):
             (current.get(key), preset.get(key))
             for key in GEN_PARAMETERS if key in preset
         ):
+            units_match = True
+
             # Now check ControlNet units if present in the preset
             if "controlnet_units" in preset:
                 # Get current controlnet units as comparable data
