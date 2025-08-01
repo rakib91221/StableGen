@@ -1830,6 +1830,7 @@ class ComfyUIGenerate(bpy.types.Operator):
     def invoke(self, context, event):
         if context.scene.generation_method == 'uv_inpaint':
             # Reset object prompts on every run
+            self.show_prompt_dialog = True
             self._object_prompts = {}
             self._to_texture = [obj.name for obj in bpy.context.scene.objects if obj.type == 'MESH']
             if context.scene.texture_objects == 'selected':
@@ -1837,7 +1838,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             self.mesh_index = 0
             self.current_object_name = self._to_texture[0] if self._to_texture else ""
             # If "Ask for object prompts" is disabled, don’t prompt per object
-            if not context.scene.ask_object_prompts:
+            if not context.scene.ask_object_prompts or self._is_running:
                 self.show_prompt_dialog = False
                 return self.execute(context)
             return context.window_manager.invoke_props_dialog(self, width=400)
