@@ -377,7 +377,6 @@ The open spirit of the AI and open-source communities is what makes projects lik
 Here are some features we plan to implement in the future (in no particular order):
 * **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
-* **FLUX.1-dev Support Improvements:** Full support for the FLUX.1-dev, depth control LoRAs, and more.
 * **SD 3.5 Support:** Support for the Stable Diffusion 3.5 architecture.
 * **Remote ComfyUI Support:** Allow connecting to remote ComfyUI servers, enabling distributed processing.
 
