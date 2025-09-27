@@ -120,7 +120,7 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
 * **Size:** FLUX.1 models and their dependencies are very large.
 
 * **a) FLUX.1-dev Model:**
-    * **Directory:** `<YourComfyUIDirectory>/models/checkpoints/`
+    * **Directory:** `<YourComfyUIDirectory>/models/unet/`
     * **Filename:** `flux1-dev.safetensors`
     * **Download Page:** [https://huggingface.co/black-forest-labs/FLUX.1-dev/](https://huggingface.co/black-forest-labs/FLUX.1-dev/)
     * **License:** FLUX-1-dev Non-Commercial License
