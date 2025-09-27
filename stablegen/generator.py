@@ -15,7 +15,7 @@ from PIL import Image
 from .util.helpers import prompt_text, prompt_text_img2img  # pylint: disable=relative-beyond-top-level
 from .render_tools import export_emit_image, export_visibility, export_canny, bake_texture, prepare_baking, unwrap # pylint: disable=relative-beyond-top-level
 from .utils import get_last_material_index, get_generation_dirs, get_file_path, get_dir_path, remove_empty_dirs # pylint: disable=relative-beyond-top-level
-from .project import project_image # pylint: disable=relative-beyond-top-level
+from .project import project_image, reinstate_compare_nodes # pylint: disable=relative-beyond-top-level
 
 # Import wheels
 import websocket
@@ -24,6 +24,90 @@ def redraw_ui(context):
     """Redraws the UI to reflect changes in the operator's progress and status."""
     for area in context.screen.areas:
         area.tag_redraw()
+
+class Regenerate(bpy.types.Operator):
+    """Regenerate textures for selected cameras / viewpoints
+    - Works for sequential and separate generation modes
+    - Generates new images for the selected cameras only, keeping existing images for unselected cameras
+    - This can be used with different prompts or settings to refine specific viewpoints without affecting others"""
+    bl_idname = "object.stablegen_regenerate"
+    bl_label = "Regenerate Selected Viewpoints"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    _original_method = None
+    _original_overwrite_material = None
+    _timer = None
+    @classmethod
+    def poll(cls, context):
+        """     
+        Polls whether the operator can be executed.         
+        :param context: Blender context.         
+        :return: True if the operator can be executed, False otherwise.     
+        """
+        # Check for other modal operators
+        operator = None
+        if not (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate'):
+            return False
+        if context.scene.output_timestamp == "":
+            return False
+        for window in context.window_manager.windows:
+                for op in window.modal_operators:
+                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or\
+                    op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_test_stable' or\
+                    op.bl_idname == 'OBJECT_OT_stablegen_reproject' or op.bl_idname == 'OBJECT_OT_stablegen_regenerate' \
+                          or context.scene.generation_status == 'waiting':
+                        operator = op
+                        break
+                if operator:
+                    break
+        if operator:
+            return False
+        return True
+
+    def execute(self, context):
+        """     
+        Executes the operator.         
+        :param context: Blender context.         
+        :return: {'FINISHED'}     
+        """
+        
+        self._original_overwrite_material = context.scene.overwrite_material
+        # Set the flag to reproject
+        context.scene.generation_mode = 'regenerate_selected'
+        # Set the generation method to 'separate' to avoid generating new images
+        context.scene.overwrite_material = True
+        # Set timer to 1 seconds to give some time for the generate to start
+        context.window_manager.modal_handler_add(self)
+        self._timer = context.window_manager.event_timer_add(1.0, window=context.window)
+        # Run the generation operator
+        bpy.ops.object.test_stable('INVOKE_DEFAULT')
+
+        # Switch to modal and wait for completion
+        print("Going modal")
+        return {'RUNNING_MODAL'}
+    
+    def modal(self, context, event):
+        """     
+        Handles modal events.         
+        :param context: Blender context.         
+        :param event: Blender event.         
+        :return: {'PASS_THROUGH'}     
+        """
+        if event.type == 'TIMER':
+            running = False
+            if ComfyUIGenerate._is_running:
+                running = True
+            if not running:
+                # Reset the generation method and overwrite material flag
+                context.scene.overwrite_material = self._original_overwrite_material
+                # Reset the project only flag
+                context.scene.generation_mode = 'standard'
+                # Remove the modal handler
+                context.window_manager.event_timer_remove(self._timer)
+                # Report completion
+                self.report({'INFO'}, "Regeneration complete.")
+                return {'FINISHED'}
+        return {'PASS_THROUGH'}
 
 class Reproject(bpy.types.Operator):
     """Rerun projection of existing images
@@ -51,7 +135,8 @@ class Reproject(bpy.types.Operator):
                 for op in window.modal_operators:
                     if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or\
                     op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_test_stable' or\
-                          op.bl_idname == 'OBJECT_OT_stablegen_reproject' or context.scene.generation_status == 'waiting':
+                    op.bl_idname == 'OBJECT_OT_stablegen_reproject' or op.bl_idname == 'OBJECT_OT_stablegen_regenerate' \
+                          or context.scene.generation_status == 'waiting':
                         operator = op
                         break
                 if operator:
@@ -90,7 +175,7 @@ class Reproject(bpy.types.Operator):
         self._original_method = context.scene.generation_method
         self._original_overwrite_material = context.scene.overwrite_material
         # Set the flag to reproject
-        context.scene.project_only = True
+        context.scene.generation_mode = 'project_only'
         # Set the generation method to 'separate' to avoid generating new images
         context.scene.generation_method = 'separate'
         context.scene.overwrite_material = True
@@ -120,7 +205,7 @@ class Reproject(bpy.types.Operator):
                 context.scene.generation_method = self._original_method
                 context.scene.overwrite_material = self._original_overwrite_material
                 # Reset the project only flag
-                context.scene.project_only = False
+                context.scene.generation_mode = 'standard'
                 # Remove the modal handler
                 context.window_manager.event_timer_remove(self._timer)
                 # Report completion
@@ -145,6 +230,7 @@ class ComfyUIGenerate(bpy.types.Operator):
     _is_running = False
     _threads_left = 0
     _cameras = None
+    _selected_camera_ids = None
     _grid_width = 0
     _grid_height = 0
     _material_id = -1
@@ -221,7 +307,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             return {'FINISHED'}
         
         # Timestamp for output directory
-        if not context.scene.project_only:
+        if context.scene.generation_mode == 'standard':
             context.scene.output_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         
         # If UV inpainting and we're in prompt collection mode, collect prompts first.
@@ -271,6 +357,9 @@ class ComfyUIGenerate(bpy.types.Operator):
             return {'CANCELLED'}
         # Sort cameras by name
         self._cameras.sort(key=lambda x: x.name)
+        self._selected_camera_ids = [i for i, cam in enumerate(self._cameras) if cam in bpy.context.selected_objects] #TEST
+        if len(self._selected_camera_ids) == 0:
+            self._selected_camera_ids = list(range(len(self._cameras))) # All cameras selected if none are selected
         
         # Check if there is at least one ControlNet unit
         controlnet_units = getattr(context.scene, "controlnet_units", [])
@@ -284,10 +373,12 @@ class ComfyUIGenerate(bpy.types.Operator):
         if any(obj.type == 'CURVE' for obj in bpy.context.scene.objects):
             self.report({'WARNING'}, "Curves detected in the scene. This may cause issues with the generation process. Consider removing them before proceeding.")
         
-        if context.scene.project_only:
+        if context.scene.generation_mode == 'project_only':
             print(f"Reprojecting images for {len(self._cameras)} cameras")
-        else:
+        elif context.scene.generation_mode == 'standard':
             print(f"Generating images for {len(self._cameras)} cameras")
+        else:
+            print(f"Regenerating images for {len(self._selected_camera_ids)} selected cameras")
 
         uv_slots_needed = len(self._cameras)
 
@@ -365,7 +456,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 self._cameras.append(camera)
                 bpy.context.scene.collection.objects.link(camera)
 
-        if not context.scene.project_only:
+        if context.scene.generation_mode == 'standard':
             # If there is depth controlnet unit
             if any(unit["unit_type"] == "depth" for unit in controlnet_units) or (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1'):
                 if context.scene.generation_method != 'uv_inpaint':
@@ -470,7 +561,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         self.prompt_text = context.scene.comfyui_prompt
 
         self._progress = 0.0
-        if context.scene.project_only:
+        if context.scene.generation_mode == 'project_only':
             self._stage = "Reprojecting"
         else:
             self._stage = "Starting"
@@ -483,6 +574,15 @@ class ComfyUIGenerate(bpy.types.Operator):
                 self._total_images += len(self._cameras)  # Add refinement steps
         elif context.scene.generation_method == 'uv_inpaint':
             self._total_images = len(self._to_texture)
+
+        # Regenerate mode preparation
+        if context.scene.generation_mode == 'regenerate_selected':
+            # Reset weights for selected viewpoints
+            # Prepare list of camera_ids and material_ids to reset weights for
+            ids = []
+            for camera_id in self._selected_camera_ids:
+                ids.append((camera_id, self._material_id))
+            reinstate_compare_nodes(context, self._to_texture, ids)
 
         # Add modal timer
         context.window_manager.modal_handler_add(self)
@@ -527,8 +627,12 @@ class ComfyUIGenerate(bpy.types.Operator):
                     remove_empty_dirs(context)
                     context.scene.generation_status = 'idle'
                     return {'CANCELLED'}
-                if not context.scene.project_only:
+                if not context.scene.generation_mode == 'project_only':
                     self.report({'INFO'}, "Generation complete.")
+                # If viewport rendering mode is 'Rendered' and mode is 'regenerate_selected', switch to 'Solid' and then back to 'Rendered' to refresh the viewport
+                if context.scene.generation_mode == 'regenerate_selected' and context.area.spaces.active.shading.type == 'RENDERED':
+                    context.area.spaces.active.shading.type = 'SOLID'
+                    context.area.spaces.active.shading.type = 'RENDERED'
                 context.scene.display_settings.display_device = 'sRGB'
                 context.scene.view_settings.view_transform = 'Standard'
                 context.scene.generation_status = 'idle'
@@ -597,10 +701,10 @@ class ComfyUIGenerate(bpy.types.Operator):
             normal_path = None
             mask_path = None
             render_path = None
-            while self._threads_left > 0 and not context.scene.project_only:
-                if context.scene.steps != 0:
+            while self._threads_left > 0 and not context.scene.generation_mode == 'project_only':
+                if context.scene.steps != 0 and not (context.scene.generation_mode == 'regenerate_selected' and camera_id not in self._selected_camera_ids):
                     # Generate image without ControlNet if needed
-                    if camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
+                    if context.scene.generation_mode == 'standard' and camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
                             and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first':
                         self._stage = "Generating Reference Image"
                         # Don't use ControlNet for the first image if sequential_ipadapter_regenerate_wo_controlnet is enabled
@@ -642,6 +746,15 @@ class ComfyUIGenerate(bpy.types.Operator):
                             else:
                                 image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
                         else:
+                            def context_callback():
+                                # Export visibility mask and render for the current camera, we need to use a callback to be in the main thread
+                                export_visibility(context, self._to_texture, camera_visibility=self._cameras[self._current_image - 1]) # Export mask for current view
+                                export_emit_image(context, self._to_texture, camera_id=self._current_image, bg_color=context.scene.fallback_color) # Export render for next view
+                                self._wait_event.set()
+                                return None
+                            bpy.app.timers.register(context_callback)
+                            self._wait_event.wait()
+                            self._wait_event.clear()
                             # Get paths for the previous render and mask
                             render_path = get_file_path(context, "inpaint", subtype="render", camera_id=self._current_image)
                             mask_path = get_file_path(context, "inpaint", subtype="visibility", camera_id=self._current_image)
@@ -700,10 +813,6 @@ class ComfyUIGenerate(bpy.types.Operator):
                         def image_project_callback():
                             redraw_ui(context)
                             project_image(context, self._to_texture, self._material_id, stop_index=self._current_image)
-                            if self._current_image < len(self._cameras) - 1:
-                                next_camera_id = self._current_image + 1
-                                export_visibility(context, self._to_texture, camera_visibility=self._cameras[self._current_image]) # Export mask for current view
-                                export_emit_image(context, self._to_texture, camera_id=next_camera_id, bg_color=context.scene.fallback_color) # Export render for next view
                             # Set the event to signal the end of the process
                             self._wait_event.set()
                             return None

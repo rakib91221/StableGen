@@ -241,7 +241,8 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
             mat = obj.active_material.copy()
             obj.data.materials.append(mat)
             to_switch = True
-        elif obj.active_material and (context.scene.overwrite_material or (context.scene.generation_method == "refine" and context.scene.refine_preserve) or (context.scene.generation_method == 'sequential' and stop_index > 0)):
+        elif obj.active_material and (context.scene.overwrite_material or (context.scene.generation_method == "refine" and context.scene.refine_preserve) \
+                                      or (context.scene.generation_method == 'sequential' and stop_index > 0) or context.scene.generation_mode == 'regenerate_selected'):
             # Use active material
             mat = obj.active_material
         else:
@@ -273,7 +274,7 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
         original_uv_map = obj.data.uv_layers[0]
 
 
-        if context.scene.generation_method == 'sequential' and stop_index > 0:
+        if (context.scene.generation_method == 'sequential' and stop_index > 0) or context.scene.generation_mode == 'regenerate_selected':
             # We just need to remove the compare nodes which are connected to script node at stop_index
             script_node = None
             # First find all script nodes with label {stop_index}-{mat_id}
@@ -571,3 +572,50 @@ def simple_project_bake(context, camera_id, obj, mat_id):
 
     # Remove the temporary material
     bpy.ops.object.material_slot_remove()
+
+def reinstate_compare_nodes(context, to_project, stop_id_mat_id_pairs):
+    """
+    Reinstates the 'LESS_THAN' compare nodes that were removed for sequential generation.
+    This will esentially revert given views to not-generated state for viewpoint regeneration.
+    """
+
+    for obj in to_project:
+        if not obj.active_material:
+            continue
+
+        mat = obj.active_material
+        if not mat.use_nodes:
+            continue
+
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+
+        for stop_id, mat_id in stop_id_mat_id_pairs:
+            script_node = None
+            # Find the script node with the specific label
+            for node in nodes:
+                if node.type == 'SCRIPT' and node.label == f"{stop_id}-{mat_id}":
+                    script_node = node
+                    break
+            
+            if not script_node:
+                continue
+
+            # Store links to disconnect and reconnect later
+            links_to_recreate = []
+            for link in list(script_node.outputs[0].links):
+                links_to_recreate.append((link.from_socket, link.to_socket))
+                links.remove(link)
+
+            # For each original connection, insert a 'LESS_THAN' node
+            for from_socket, to_socket in links_to_recreate:
+                # Create a new 'LESS_THAN' math node
+                less_than_node = nodes.new(type='ShaderNodeMath')
+                less_than_node.operation = 'LESS_THAN'
+                less_than_node.inputs[1].default_value = -1
+                # Position it between the script node and its original destination
+                less_than_node.location = (script_node.location.x + 200, script_node.location.y)
+
+                # Connect script_node -> less_than_node -> original destination
+                links.new(from_socket, less_than_node.inputs[0])
+                links.new(less_than_node.outputs[0], to_socket)

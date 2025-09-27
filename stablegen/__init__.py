@@ -3,7 +3,7 @@ import bpy # pylint: disable=import-error
 from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters
 from .render_tools import BakeTextures, AddCameras, SwitchMaterial, ExportOrbitGIF, CollectCameraPrompts, CameraPromptItem 
 from .utils import AddHDRI, ApplyModifiers, CurvesToMesh
-from .generator import ComfyUIGenerate, Reproject
+from .generator import ComfyUIGenerate, Reproject, Regenerate
 import os
 from bpy.app.handlers import persistent
 
@@ -31,6 +31,7 @@ classes = [
     CurvesToMesh,
     ComfyUIGenerate,
     Reproject,
+    Regenerate
 ]
 
 def update_combined(self, context): # Combined with load_handler to load controlnet unit on first setup
@@ -980,7 +981,7 @@ def register():
         name="Fallback Color",
         description="Color to use as fallback in texture generation",
         subtype='COLOR',
-        default=(0.5, 0.5, 0.5),  # Changed from 4 values to 3 values
+        default=(0.0, 0.0, 0.0),
         min=0.0, max=1.0,
         update=update_parameters
     )
@@ -1201,10 +1202,15 @@ def register():
         update=update_parameters
     )
     
-    bpy.types.Scene.project_only = bpy.props.BoolProperty(
-        name ="Project Only",
-        description="""Internal flag to only project existing textures onto the model""",
-        default=False,
+    bpy.types.Scene.generation_mode = bpy.props.EnumProperty(
+        name="Generation Mode",
+        description="Controls the generation behavior",
+        items=[
+            ('standard', 'Standard', 'Standard generation process'),
+            ('regenerate_selected', 'Regenerate Selected', 'Regenerate only specific viewpoints, keeping the rest from the previous run'),
+            ('project_only', 'Project Only', 'Only project existing textures onto the model without generating new ones')
+        ],
+        default='standard',
         update=update_parameters
     )
 
@@ -1333,7 +1339,7 @@ def unregister():
     del bpy.types.Scene.show_image_guidance_settings
     del bpy.types.Scene.show_masking_inpainting_settings
     del bpy.types.Scene.show_mode_specific_settings
-    del bpy.types.Scene.project_only
+    del bpy.types.Scene.generation_mode
     del bpy.types.Scene.early_priority_strength
     del bpy.types.Scene.early_priority
     del bpy.types.Scene.texture_objects
