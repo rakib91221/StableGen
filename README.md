@@ -177,6 +177,7 @@ The `installer.py` script (found in this repository) automates the download and 
 3.  Set the following paths:
     * **ComfyUI Directory:** Path to your ComfyUI installation (e.g., `<YourComfyUIDirectory>`).
     * **Output Directory:** Choose a folder where StableGen will save generated images.
+      * **Note for docker users:** When setting up your ComfyUI docker container, be sure to include the absolute path to this output directory in your volumes. i.e. if your StableGen output path is /home/user/stable_gen_output, your container volume mapping should include /home/user/stable_gen_output:/home/user/stable_gen_output.
     * **Server Address:** Ensure this matches your ComfyUI server (default `127.0.0.1:8188`).
     * Review **ControlNet Mapping** if using custom named ControlNet models.
     * **External Checkpoints / LoRAs Directory (Optional):** Path to your external checkpoint directory. Also has to be configured in ComfyUI.
