@@ -7,6 +7,9 @@ import json
 import urllib.request
 import socket
 import threading
+import requests
+import traceback
+import json
 from datetime import datetime
 
 import math
@@ -46,6 +49,11 @@ class Regenerate(bpy.types.Operator):
         """
         # Check for other modal operators
         operator = None
+        addon_prefs = context.preferences.addons[__package__].preferences
+        if not os.path.exists(addon_prefs.output_dir):
+            return False
+        if not addon_prefs.server_address or not addon_prefs.server_online:
+            return False
         if not (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate'):
             return False
         if context.scene.output_timestamp == "":
@@ -212,7 +220,79 @@ class Reproject(bpy.types.Operator):
                 self.report({'INFO'}, "Reprojection complete.")
                 return {'FINISHED'}
         return {'PASS_THROUGH'}
+    
+def upload_image_to_comfyui(server_address, image_path, image_type="input"):
+    """
+    Uploads an image file to the ComfyUI server's /upload/image endpoint.
 
+    Args:
+        server_address (str): The address:port of the ComfyUI server (e.g., "127.0.0.1:8188").
+        image_path (str): The local path to the image file to upload.
+        image_type (str): The type parameter for the upload (usually "input").
+
+    Returns:
+        dict: A dictionary containing the server's response (e.g., {'name': 'filename.png', 'subfolder': '', 'type': 'input'})
+              Returns None if the upload fails or file doesn't exist.
+    """
+    if not os.path.exists(image_path):
+        # This is expected for optional files, so don't log as an error
+        # print(f"Debug: Image file not found at {image_path}, cannot upload.")
+        return None
+    if not os.path.isfile(image_path):
+        print(f"Error: Path exists but is not a file: {image_path}")
+        return None
+
+    upload_url = f"http://{server_address}/upload/image"
+    print(f"Uploading {os.path.basename(image_path)} to {upload_url}...")
+
+    try:
+        with open(image_path, 'rb') as f:
+            # Determine mime type based on extension
+            mime_type = 'application/octet-stream' # Default fallback
+            if image_path.lower().endswith('.png'):
+                mime_type = 'image/png'
+            elif image_path.lower().endswith(('.jpg', '.jpeg')):
+                mime_type = 'image/jpeg'
+            elif image_path.lower().endswith('.webp'):
+                mime_type = 'image/webp'
+            # Add other types if needed (e.g., .bmp, .gif)
+
+            files = {'image': (os.path.basename(image_path), f, mime_type)}
+            # 'overwrite': 'true' prevents errors if the same filename is uploaded again
+            # useful for re-running generations with the same intermediate files.
+            data = {'overwrite': 'true', 'type': image_type}
+
+            # Increased timeout for potentially large images or slow networks
+            response = requests.post(upload_url, files=files, data=data, timeout=120)
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        response_data = response.json()
+        print(f"  Upload successful for '{os.path.basename(image_path)}'. Server response: {response_data}")
+
+        # Crucial Validation
+        if 'name' not in response_data:
+             print(f"  Error: ComfyUI upload response for {os.path.basename(image_path)} missing 'name'. Response: {response_data}")
+             return None
+        # End Validation
+
+        return response_data # Should contain 'name', often 'subfolder', 'type'
+
+    except requests.exceptions.Timeout:
+        print(f"  Error: Timeout uploading image {os.path.basename(image_path)} to {upload_url}.")
+    except requests.exceptions.ConnectionError:
+        print(f"  Error: Connection failed when uploading image {os.path.basename(image_path)} to {upload_url}. Is ComfyUI running and accessible?")
+    except requests.exceptions.HTTPError as e:
+         print(f"  Error: HTTP Error {e.response.status_code} uploading image {os.path.basename(image_path)} to {upload_url}.")
+         print(f"  Server response content: {e.response.text}") # Show response body on error
+    except requests.exceptions.RequestException as e:
+        print(f"  Error uploading image {os.path.basename(image_path)} to {upload_url}: {e}")
+    except json.JSONDecodeError:
+        print(f"  Error decoding ComfyUI response after uploading {os.path.basename(image_path)}. Response text: {response.text}")
+    except Exception as e:
+        print(f"  An unexpected error occurred during image upload of {os.path.basename(image_path)}: {e}")
+        traceback.print_exc() # Print full traceback for unexpected errors
+
+    return None
 
 class ComfyUIGenerate(bpy.types.Operator):
     """Generate textures using ComfyUI (to all mesh objects using all cameras in the scene)
@@ -237,6 +317,7 @@ class ComfyUIGenerate(bpy.types.Operator):
     _to_texture = None
     _original_visibility = None
     proceed_with_high_res: bpy.props.BoolProperty(default=False)
+    _uploaded_images_cache: dict = {}
 
     # Add properties to track progress
     _progress = 0.0
@@ -288,9 +369,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         addon_prefs = context.preferences.addons[__package__].preferences
         if not os.path.exists(addon_prefs.output_dir):
             return False
-        if not os.path.exists(addon_prefs.comfyui_dir):
-            return False
-        if not addon_prefs.server_address:
+        if not addon_prefs.server_address or not addon_prefs.server_online:
             return False
         if bpy.app.online_access == False: # Check if online access is disabled
             return False
@@ -305,6 +384,9 @@ class ComfyUIGenerate(bpy.types.Operator):
         if ComfyUIGenerate._is_running:
             self.cancel_generate(context)
             return {'FINISHED'}
+        
+        # Clear the upload cache at the start of a new generation
+        self._uploaded_images_cache.clear()
         
         # Timestamp for output directory
         if context.scene.generation_mode == 'standard':
@@ -696,13 +778,42 @@ class ComfyUIGenerate(bpy.types.Operator):
         """
         self._error = None
         try:
-            depth_path = None
-            canny_path = None
-            normal_path = None
-            mask_path = None
-            render_path = None
             while self._threads_left > 0 and not context.scene.generation_mode == 'project_only':
                 if context.scene.steps != 0 and not (context.scene.generation_mode == 'regenerate_selected' and camera_id not in self._selected_camera_ids):
+                    # Prepare Image Info for Upload
+                    controlnet_info = {}
+                    mask_info = None
+                    render_info = None
+                    ipadapter_ref_info = None
+
+                    # Get info for controlnet images for the current camera or grid
+                    if context.scene.generation_method != 'uv_inpaint':
+                        controlnet_info["depth"] = self._get_uploaded_image_info(context, "controlnet", subtype="depth", camera_id=camera_id)
+                        controlnet_info["canny"] = self._get_uploaded_image_info(context, "controlnet", subtype="canny", camera_id=camera_id)
+                        controlnet_info["normal"] = self._get_uploaded_image_info(context, "controlnet", subtype="normal", camera_id=camera_id)
+                    else: # UV Inpainting
+                        current_obj_name = self._to_texture[self._current_image].name
+                        mask_info = self._get_uploaded_image_info(context, "uv_inpaint", subtype="visibility", object_name=current_obj_name)
+                        render_info = self._get_uploaded_image_info(context, "baked", object_name=current_obj_name)
+
+                    # Get info for refine/sequential render/mask inputs
+                    if context.scene.generation_method == 'refine':
+                        render_info = self._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=camera_id)
+                    elif context.scene.generation_method == 'sequential' and self._current_image > 0:
+                        render_info = self._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=self._current_image)
+                        mask_info = self._get_uploaded_image_info(context, "inpaint", subtype="visibility", camera_id=self._current_image)
+
+                    # Get info for IPAdapter reference image
+                    if context.scene.use_ipadapter:
+                        ipadapter_ref_info = self._get_uploaded_image_info(context, "custom", filename=bpy.path.abspath(context.scene.ipadapter_image))
+                    elif context.scene.sequential_ipadapter and self._current_image > 0:
+                        cam_id = 0 if context.scene.sequential_ipadapter_mode == 'first' else self._current_image - 1
+                        ipadapter_ref_info = self._get_uploaded_image_info(context, "generated", camera_id=cam_id, material_id=self._material_id)
+
+                    # Filter out None values from controlnet_info
+                    controlnet_info = {k: v for k, v in controlnet_info.items() if v is not None}
+                    # End Prepare Image Info
+
                     # Generate image without ControlNet if needed
                     if context.scene.generation_mode == 'standard' and camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
                             and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first':
@@ -715,36 +826,24 @@ class ComfyUIGenerate(bpy.types.Operator):
                     else:
                         self._stage = "Generating Image"
                     self._progress = 0
-                    # Prepare paths using new get_file_path function
-                    if context.scene.generation_method != 'uv_inpaint':
-                        # Get paths for controlnet images for the current camera or grid
-                        depth_path = get_file_path(context, "controlnet", subtype="depth", camera_id=camera_id) if camera_id is not None else get_file_path(context, "controlnet", subtype="depth")
-                        canny_path = get_file_path(context, "controlnet", subtype="canny", camera_id=camera_id) if camera_id is not None else get_file_path(context, "controlnet", subtype="canny")
-                        normal_path = get_file_path(context, "controlnet", subtype="normal", camera_id=camera_id) if camera_id is not None else get_file_path(context, "controlnet", subtype="normal")
-                    else:
-                        # Get paths for UV inpainting for the current object
-                        current_obj_name = self._to_texture[self._current_image].name
-                        mask_path = get_file_path(context, "uv_inpaint", subtype="visibility", object_name=current_obj_name)
-                        render_path = get_file_path(context, "baked", object_name=current_obj_name) # Use baked texture as input render
                     
                     # Generate the image
                     if context.scene.generation_method == 'refine':
-                        render_path = get_file_path(context, "inpaint", subtype="render", camera_id=camera_id)
                         if context.scene.model_architecture == 'flux1':
-                            image = self.refine_flux(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path, render_path=render_path)
+                            image = self.refine_flux(context, controlnet_info=controlnet_info, render_info=render_info, ipadapter_ref_info=ipadapter_ref_info)
                         else:
-                            image = self.refine(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path, render_path=render_path)
+                            image = self.refine(context, controlnet_info=controlnet_info, render_info=render_info, ipadapter_ref_info=ipadapter_ref_info)
                     elif context.scene.generation_method == 'uv_inpaint':
                         if context.scene.model_architecture == 'flux1':
-                            image = self.refine_flux(context, mask_path=mask_path, render_path=render_path)
+                            image = self.refine_flux(context, mask_info=mask_info, render_info=render_info)
                         else:
-                            image = self.refine(context, mask_path=mask_path, render_path=render_path)
+                            image = self.refine(context, mask_info=mask_info, render_info=render_info)
                     elif context.scene.generation_method == 'sequential':
                         if self._current_image == 0:
                             if context.scene.model_architecture == 'flux1':
-                                image = self.generate_flux(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.generate_flux(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                             else:
-                                image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.generate(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                         else:
                             def context_callback():
                                 # Export visibility mask and render for the current camera, we need to use a callback to be in the main thread
@@ -755,18 +854,18 @@ class ComfyUIGenerate(bpy.types.Operator):
                             bpy.app.timers.register(context_callback)
                             self._wait_event.wait()
                             self._wait_event.clear()
-                            # Get paths for the previous render and mask
-                            render_path = get_file_path(context, "inpaint", subtype="render", camera_id=self._current_image)
-                            mask_path = get_file_path(context, "inpaint", subtype="visibility", camera_id=self._current_image)
+                            # Get info for the previous render and mask
+                            render_info = self._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=self._current_image)
+                            mask_info = self._get_uploaded_image_info(context, "inpaint", subtype="visibility", camera_id=self._current_image)
                             if context.scene.model_architecture == 'flux1':
-                                image = self.refine_flux(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.refine_flux(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
                             else:
-                                image = self.refine(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.refine(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
                     else: # Grid or Separate
                         if context.scene.model_architecture == 'flux1':
-                            image = self.generate_flux(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                            image = self.generate_flux(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                         else:
-                            image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                            image = self.generate(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
 
                     if image == {"error": "conn_failed"}:
                         return # Error message already set
@@ -781,6 +880,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                     
                     with open(image_path, 'wb') as f:
                         f.write(image)
+
                         
                     # Use hack to re-generate the image using IPAdapter to match IPAdapter style
                     if camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
@@ -793,16 +893,17 @@ class ComfyUIGenerate(bpy.types.Operator):
                         self._stage = "Generating Image"
                         context.scene.use_ipadapter = True
                         context.scene.ipadapter_image = image_path
+                        ipadapter_ref_info = self._get_uploaded_image_info(context, "custom", filename=image_path)
                         if context.scene.model_architecture == "sdxl":
                             if context.scene.generation_method == "refine":
-                                image = self.refine(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.refine(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
                             else:
-                                image = self.generate(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.generate(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                         elif context.scene.model_architecture == "flux1":
                             if context.scene.generation_method == "refine":
-                                image = self.refine_flux(context, depth_path=depth_path, render_path=render_path, mask_path=mask_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.refine_flux(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
                             else:
-                                image = self.generate_flux(context, depth_path=depth_path, canny_path=canny_path, normal_path=normal_path)
+                                image = self.generate_flux(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                         context.scene.use_ipadapter = False
                         image_path = image_path.replace(".png", "_ipadapter.png")
                         with open(image_path, 'wb') as f:
@@ -820,28 +921,26 @@ class ComfyUIGenerate(bpy.types.Operator):
                         # Wait for the event to be set
                         self._wait_event.wait()
                         self._wait_event.clear()
-                        # Update paths for the next iteration (if any)
+                        # Update info for the next iteration (if any)
                         if self._current_image < len(self._cameras) - 1:
                             next_camera_id = self._current_image + 1
-                            render_path = get_file_path(context, "inpaint", subtype="render", camera_id=next_camera_id)
-                            mask_path = get_file_path(context, "inpaint", subtype="visibility", camera_id=next_camera_id)
-                            # Update controlnet paths for the next camera
-                            depth_path = get_file_path(context, "controlnet", subtype="depth", camera_id=next_camera_id)
-                            canny_path = get_file_path(context, "controlnet", subtype="canny", camera_id=next_camera_id)
-                            normal_path = get_file_path(context, "controlnet", subtype="normal", camera_id=next_camera_id)
-                        
+                            # ControlNet info will be re-fetched at the start of the next loop iteration
                 else: # steps == 0, skip generation
                     pass # No image generation needed
 
                 if context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine' or context.scene.generation_method == 'sequential':
                     self._current_image += 1
                     self._threads_left -= 1
+                    if self._threads_left > 0:
+                        self._progress = 0
                     if camera_id is not None: # Increment camera_id only if it was initially provided
                         camera_id += 1
 
                 elif context.scene.generation_method == 'uv_inpaint':
                     self._current_image += 1
                     self._threads_left -= 1
+                    if self._threads_left > 0:
+                        self._progress = 0
 
                 elif context.scene.generation_method == 'grid':
                     # Split the generated grid image back into multiple images
@@ -850,17 +949,19 @@ class ComfyUIGenerate(bpy.types.Operator):
                         for i, _ in enumerate(self._cameras):
                             self._stage = f"Refining Image {i+1}/{len(self._cameras)}"
                             self._current_image = i + 1
-                            self._progress = 0
-                            # Refine the split images 
-                            refine_depth_path = get_file_path(context, "controlnet", subtype="depth", camera_id=i)
-                            refine_canny_path = get_file_path(context, "controlnet", subtype="canny", camera_id=i)
-                            refine_normal_path = get_file_path(context, "controlnet", subtype="normal", camera_id=i)
-                            refine_render_path = get_file_path(context, "generated", camera_id=i, material_id=self._material_id) # Use the split image as render input
+                            # Refine the split images
+                            refine_cn_info = {
+                                "depth": self._get_uploaded_image_info(context, "controlnet", subtype="depth", camera_id=i),
+                                "canny": self._get_uploaded_image_info(context, "controlnet", subtype="canny", camera_id=i),
+                                "normal": self._get_uploaded_image_info(context, "controlnet", subtype="normal", camera_id=i)
+                            }
+                            refine_cn_info = {k: v for k, v in refine_cn_info.items() if v is not None}
+                            refine_render_info = self._get_uploaded_image_info(context, "generated", camera_id=i, material_id=self._material_id)
 
                             if context.scene.model_architecture == 'flux1':
-                                image = self.refine_flux(context, depth_path=refine_depth_path, canny_path=refine_canny_path, normal_path=refine_normal_path, render_path=refine_render_path)
+                                image = self.refine_flux(context, controlnet_info=refine_cn_info, render_info=refine_render_info)
                             else:
-                                image = self.refine(context, depth_path=refine_depth_path, canny_path=refine_canny_path, normal_path=refine_normal_path, render_path=refine_render_path)
+                                image = self.refine(context, controlnet_info=refine_cn_info, render_info=refine_render_info)
 
                             if image == {"error": "conn_failed"}:
                                 self._error = "Failed to connect to ComfyUI server."
@@ -904,13 +1005,77 @@ class ComfyUIGenerate(bpy.types.Operator):
         elif context.scene.control_after_generate == 'randomize':
             context.scene.seed = np.random.randint(0, 1000000)
 
-    def generate(self, context, depth_path=None, canny_path=None, normal_path=None):
+    def _get_uploaded_image_info(self, context, file_type, subtype=None, filename=None, camera_id=None, object_name=None, material_id=None):
+        """
+        Gets local path, uploads if needed, caches, and returns ComfyUI upload info.
+        Intended to be called within the ComfyUIGenerate operator instance.
+
+        Args:
+            self: The instance of the ComfyUIGenerate operator.
+            context: Blender context.
+            file_type: Type of file (e.g., "controlnet", "generated", "baked").
+            subtype: Subtype (e.g., "depth", "render").
+            filename: Specific filename if overriding default naming.
+            camera_id: Camera index.
+            object_name: Object name.
+            material_id: Material index.
+
+        Returns:
+            dict: Upload info from ComfyUI (containing 'name', etc.) or None if failed/not found.
+        """
+        # Ensure correct material_id is used if not provided explicitly
+        # Assumes self._material_id is set correctly in the operator instance
+        effective_material_id = material_id if material_id is not None else getattr(self, '_material_id', 0)
+
+        # Use the existing get_file_path to determine the canonical local path
+        if not file_type == "custom": # Custom files use provided filename directly
+            local_path = get_file_path(context, file_type, subtype, filename, camera_id, object_name, effective_material_id)
+        else:
+            local_path = filename
+
+        # Use the operator's instance cache variable (self._uploaded_images_cache)
+        if not hasattr(self, '_uploaded_images_cache') or self._uploaded_images_cache is None:
+            # Initialize cache if it doesn't exist (e.g., first call in execute)
+            # Although clearing in execute() is preferred
+            self._uploaded_images_cache = {}
+            print("Warning: _uploaded_images_cache not found, initializing. Should be cleared in execute().")
+
+
+        # Check cache first using the absolute local path as the key
+        absolute_local_path = os.path.abspath(local_path)
+        cached_info = self._uploaded_images_cache.get(absolute_local_path)
+        if cached_info is not None: # Can be None if previous upload failed
+            # print(f"Debug: Using cached upload info for: {absolute_local_path}")
+            return cached_info # Return cached info (could be None if failed before)
+
+        # File exists locally? If not, we can't upload. Return None. Cache this result.
+        if not os.path.exists(absolute_local_path) or not os.path.isfile(absolute_local_path):
+            # print(f"Debug: Local file not found or not a file, cannot upload: {absolute_local_path}")
+            self._uploaded_images_cache[absolute_local_path] = None # Cache the fact that it's missing/invalid
+            return None
+
+        # Not cached and file exists, try to upload it
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        uploaded_info = upload_image_to_comfyui(server_address, absolute_local_path)
+
+        # Store result (the info dict or None if upload failed) in cache
+        self._uploaded_images_cache[absolute_local_path] = uploaded_info
+
+        if uploaded_info:
+            return uploaded_info
+        else:
+            # Upload failed, error message was printed by upload_image_to_comfyui
+            # Returning None allows optional inputs to be skipped gracefully.
+            # If a *required* image fails to upload, the workflow submission
+            # will likely fail later when ComfyUI can't find the input.
+            return None
+
+    def generate(self, context, controlnet_info=None, ipadapter_ref_info=None):
         """     
         Generates the image using ComfyUI.         
         :param context: Blender context.
-        :param depth_path: Path to the depth map image.
-        :param canny_path: Path to the canny edge image.
-        :param normal_path: Path to the normal map image.
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
         :return: Generated image binary data.     
         """
         from .util.helpers import prompt_text
@@ -927,9 +1092,9 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Set model resolution
         self._configure_resolution(prompt, context, NODES)
 
-        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+        if ipadapter_ref_info:
             # Configure IPAdapter settings
-            self._configure_ipadapter(prompt, context, NODES)
+            self._configure_ipadapter(prompt, context, ipadapter_ref_info, NODES)
         else:
             # Remove IPAdapter nodes if not used
             for node_id in ['235', '236', '237']:
@@ -937,11 +1102,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                     del prompt[node_id]
         
         # Build controlnet chain
-        prompt = self._build_controlnet_chain(prompt, context, depth_path, canny_path, normal_path, NODES)
+        prompt = self._build_controlnet_chain(prompt, context, controlnet_info, NODES)
         
         # Save prompt for debugging (in revision dir)
         self._save_prompt_to_file(prompt, revision_dir)
-        
+
         # Execute generation and get results
         ws = self._connect_to_websocket(server_address, client_id)
 
@@ -1061,21 +1226,15 @@ class ComfyUIGenerate(bpy.types.Operator):
             prompt[NODES['latent']]["inputs"]["width"] = context.scene.render.resolution_x
             prompt[NODES['latent']]["inputs"]["height"] = context.scene.render.resolution_y
 
-    def _configure_ipadapter(self, prompt, context, NODES):
+    def _configure_ipadapter(self, prompt, context, ipadapter_ref_info, NODES):
         # Configure IPAdapter if enabled
         
         # Connect IPAdapter output to the appropriate node
         prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         
-        # Set IPAdapter image source based on ipadapter_image
-        if context.scene.use_ipadapter:
-            image_path = bpy.path.abspath(context.scene.ipadapter_image)
-            prompt[NODES['ipadapter_image']]["inputs"]["image"] = image_path
-        elif context.scene.sequential_ipadapter:
-            if context.scene.sequential_ipadapter_mode == 'first':
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=0, material_id=self._material_id)
-            else:
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=self._current_image - 1, material_id=self._material_id)
+        # Set IPAdapter image source
+        if ipadapter_ref_info:
+            prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
 
         # Connect ipadapter image to the input
         prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
@@ -1093,7 +1252,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         }
         prompt[NODES['ipadapter']]["inputs"]["weight_type"] = weight_type_mapping.get(context.scene.ipadapter_weight_type, "standard")
 
-    def _build_controlnet_chain_extended(self, context, base_prompt, pos_input, neg_input, vae_input, image_dict):
+    def _build_controlnet_chain_extended(self, context, base_prompt, pos_input, neg_input, vae_input, controlnet_info_dict):
         """
         Builds a chain of ControlNet units dynamically based on scene settings.
 
@@ -1105,8 +1264,8 @@ class ComfyUIGenerate(bpy.types.Operator):
             vae_input (list): The [node_id, output_idx] for the VAE, used by ControlNetApplyAdvanced.
                               Typically, this is [checkpoint_node_id, 2] for SDXL or 
                               [checkpoint_node_id, 0] for some VAE loaders.
-            image_dict (dict): A dictionary mapping ControlNet types (e.g., "depth", 
-                               "canny") to their corresponding image file paths.
+            controlnet_info_dict (dict): A dictionary mapping ControlNet types (e.g., "depth", 
+                               "canny") to their corresponding uploaded image info.
 
         Returns:
             tuple: (modified_prompt, final_positive_conditioning, final_negative_conditioning)
@@ -1123,6 +1282,12 @@ class ComfyUIGenerate(bpy.types.Operator):
         current_neg = neg_input
         has_union = False
         for idx, unit in enumerate(controlnet_units):
+            # Get uploaded info for this unit's type
+            uploaded_info = controlnet_info_dict.get(unit.unit_type)
+            if not uploaded_info:
+                print(f"Warning: Uploaded info for ControlNet type '{unit.unit_type}' not found. Skipping unit.")
+                continue # Skip this unit
+
             # Generate unique keys for nodes in this chain unit.
             load_key = str(200 + idx * 3)       # LoadImage node
             loader_key = str(200 + idx * 3 + 1)   # ControlNetLoader node
@@ -1131,8 +1296,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             # Create the LoadImage node.
             base_prompt[load_key] = {
                 "inputs": {
-                    "image": image_dict.get(unit.unit_type, ""),
-                    "upload": "image"
+                    "image": uploaded_info['name'],
                 },
                 "class_type": "LoadImage",
                 "_meta": {
@@ -1235,12 +1399,12 @@ class ComfyUIGenerate(bpy.types.Operator):
             
         return prompt, current_model_out, current_clip_out
 
-    def _build_controlnet_chain(self, prompt, context, depth_path, canny_path, normal_path, NODES):
+    def _build_controlnet_chain(self, prompt, context, controlnet_info, NODES):
         """Builds the ControlNet processing chain."""
         # Build controlnet chain with guidance images
         prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, NODES['pos_prompt'], NODES['neg_prompt'], NODES['checkpoint'],
-            {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+            controlnet_info
         )
         
         # Connect final node outputs to the KSampler
@@ -1338,31 +1502,32 @@ class ComfyUIGenerate(bpy.types.Operator):
             print(f"Failed to queue prompt: {str(e)}")
             raise
     
-    def refine(self, context, depth_path=None, canny_path=None, mask_path=None, render_path=None, normal_path=None):
+    def refine(self, context, controlnet_info=None, mask_info=None, render_info=None, ipadapter_ref_info=None):
         """     
         Refines the image using ComfyUI.         
         :param context: Blender context.         
-        :param depth_path: Path to the depth map image.
-        :param canny_path: Path to the canny edge image.
-        :param mask_path: Path to the mask image for inpainting.
-        :param render_path: Path to the input render image.
-        :param normal_path: Path to the normal map image.         
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param mask_info: Uploaded mask image info.
+        :param render_info: Uploaded render image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
         :return: Refined image.     
         """
         # Setup connection parameters
         server_address = context.preferences.addons[__package__].preferences.server_address
         client_id = str(uuid.uuid4())
-        output_dir = get_generation_dirs(context)["revision"]
+        output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
 
         # Initialize the img2img prompt template and configure base settings
         prompt, NODES = self._create_img2img_base_prompt(context)
         
         # Configure based on generation method
-        self._configure_refinement_mode(prompt, context, render_path, mask_path, NODES)
+        self._configure_refinement_mode(prompt, context, render_info, mask_info, NODES)
 
-        if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
+        if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
             # Configure IPAdapter settings
-            self._configure_ipadapter_refine(prompt, context, NODES)
+            self._configure_ipadapter_refine(prompt, context, ipadapter_ref_info, NODES)
         else:
             # Remove IPAdapter nodes if not used
             for node_id in ["235", "236", "237"]:
@@ -1370,11 +1535,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                     del prompt[node_id]
         
         # Set up image inputs for different controlnet types
-        self._refine_configure_images(prompt, depth_path, canny_path, normal_path, render_path, NODES)
+        self._refine_configure_images(prompt, render_info, NODES)
         
         # Build controlnet chain for refinement if needed
         if not context.scene.generation_method == 'uv_inpaint':
-            prompt = self._refine_build_controlnet_chain(prompt, context, depth_path, canny_path, normal_path, NODES)
+            prompt = self._refine_build_controlnet_chain(prompt, context, controlnet_info, NODES)
         else:
             if context.scene.differential_diffusion:
                 prompt[NODES['sampler']]["inputs"]["positive"] = [NODES['inpaint_conditioning'], 0]
@@ -1438,7 +1603,6 @@ class ComfyUIGenerate(bpy.types.Operator):
             'input_image': "1",
             'mask_image': "12",
             'render_image': "117",
-            'depth_image': "108",
             
             # Mask Processing
             'grow_mask': "224",
@@ -1531,7 +1695,7 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         return prompt, NODES
 
-    def _configure_refinement_mode(self, prompt, context, render_path, mask_path, NODES):
+    def _configure_refinement_mode(self, prompt, context, render_info, mask_info, NODES):
         """Configures the prompt based on the specific refinement mode."""
         # Configure based on generation method
         if context.scene.generation_method == 'refine':
@@ -1546,8 +1710,8 @@ class ComfyUIGenerate(bpy.types.Operator):
                 prompt[NODES['sampler']]["inputs"]["model"] = [NODES['differential_diffusion'], 0]
             
             # Configure mask settings
-            prompt[NODES['mask_image']]["inputs"]["image"] = mask_path
-            prompt[NODES['input_image']]["inputs"]["image"] = render_path
+            prompt[NODES['mask_image']]["inputs"]["image"] = mask_info['name']
+            prompt[NODES['input_image']]["inputs"]["image"] = render_info['name']
             
             # Configure mask blur settings
             if not context.scene.blur_mask:
@@ -1563,12 +1727,12 @@ class ComfyUIGenerate(bpy.types.Operator):
             
             if context.scene.generation_method == 'uv_inpaint':
                 # Configure UV inpainting specific prompts
-                self._configure_uv_inpainting_mode(prompt, context, render_path, NODES)
+                self._configure_uv_inpainting_mode(prompt, context, render_info, NODES)
             else:  # Sequential mode
                 # Configure sequential mode settings
-                self._configure_sequential_mode(prompt, context, render_path, NODES)
+                self._configure_sequential_mode(prompt, context, NODES)
 
-    def _configure_uv_inpainting_mode(self, prompt, context, render_path, NODES):
+    def _configure_uv_inpainting_mode(self, prompt, context, render_info, NODES):
         """Configures the prompts for UV inpainting mode."""
         # Connect upscale to VAE / InpaintConditioning
         if not context.scene.differential_diffusion:
@@ -1586,7 +1750,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['neg_prompt']]["inputs"]["text"] = uv_prompt_neg
         
         # Get the current object name from the file path
-        current_object_name = os.path.basename(render_path).split('.')[0]
+        if render_info and 'name' in render_info:
+            current_object_name = os.path.basename(render_info['name']).split('.')[0]
         
         # Use the object-specific prompt if available
         object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
@@ -1596,14 +1761,17 @@ class ComfyUIGenerate(bpy.types.Operator):
             prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
             prompt[NODES['neg_prompt']]["inputs"]["text"] = uv_prompt_neg
 
-    def _configure_ipadapter_refine(self, prompt, context, NODES):
+    def _configure_ipadapter_refine(self, prompt, context, ipadapter_ref_info, NODES):
+        """Configures IPAdapter settings for refinement mode."""
         # Connect IPAdapter output to the appropriate node
         if context.scene.differential_diffusion and context.scene.generation_method != 'refine':
             prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         else:
             prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         
-        if context.scene.use_ipadapter:
+        if ipadapter_ref_info:
+            prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
+        elif context.scene.use_ipadapter:
              # Set IPAdapter image source based on ipadapter_image
             image_path = bpy.path.abspath(context.scene.ipadapter_image)
             prompt[NODES['ipadapter_image']]["inputs"]["image"] = image_path
@@ -1630,7 +1798,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         }
         prompt[NODES['ipadapter']]["inputs"]["weight_type"] = weight_type_mapping.get(context.scene.ipadapter_weight_type, "standard")
     
-    def _configure_sequential_mode(self, prompt, context, render_path, NODES):
+    def _configure_sequential_mode(self, prompt, context, NODES):
         """Configures the prompt for sequential generation mode."""
         # Connect image directly to VAE
         prompt[NODES['vae_encode_inpaint']]["inputs"]["pixels"] = [NODES['input_image'], 0]
@@ -1638,17 +1806,13 @@ class ComfyUIGenerate(bpy.types.Operator):
             # Set the noise_mask flag according to context.scene.differential_noise
             prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
 
-    def _refine_configure_images(self, prompt, depth_path, canny_path, normal_path, render_path, NODES):
+    def _refine_configure_images(self, prompt, render_info, NODES):
         """Configures the input images for the refinement process."""
-        # Set depth map
-        if depth_path:
-            prompt[NODES['depth_image']]["inputs"]["image"] = depth_path
-        
         # Set render image
-        if render_path:
-            prompt[NODES['render_image']]["inputs"]["image"] = render_path
+        if render_info:
+            prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
 
-    def _refine_build_controlnet_chain(self, prompt, context, depth_path, canny_path, normal_path, NODES):
+    def _refine_build_controlnet_chain(self, prompt, context, controlnet_info, NODES):
         """Builds the ControlNet chain for refinement process."""
         # Determine inputs for ControlNet chain
         pos_input = NODES['pos_prompt'] if (not context.scene.differential_diffusion or 
@@ -1660,7 +1824,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Build the ControlNet chain
         prompt, final = self._build_controlnet_chain_extended(
             context, prompt, pos_input, neg_input, vae_input, 
-            {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+            controlnet_info
         )
         
         # Connect final outputs to KSampler
@@ -2044,7 +2208,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         # There is no weight type for Flux IPAdapter
         
-    def generate_flux(self, context, depth_path=None, canny_path=None, normal_path=None):
+    def generate_flux(self, context, controlnet_info=None, ipadapter_ref_info=None):
         """Generates an image using Flux 1.
         Similar in structure to generate() but uses Flux nodes, skips negative prompt and LoRA.
         """
@@ -2062,13 +2226,13 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         # Configure IPAdapter for Flux if enabled
         if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
-            self.configure_ipadapter_flux(prompt, context, NODES)
+            self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
 
         # Build ControlNet chain if not using Depth LoRA
         if not context.scene.use_flux_lora:
             prompt, final_node = self._build_controlnet_chain_extended(
                 context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
-                {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+                controlnet_info
             )
         else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
             final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
@@ -2099,8 +2263,8 @@ class ComfyUIGenerate(bpy.types.Operator):
             if "30" in prompt:
                 del prompt["30"] # EmptyLatentImage
 
-            # Set the image for the Flux LoRA
-            prompt[NODES['flux_lora_image']]["inputs"]["image"] = depth_path
+            if controlnet_info and "depth" in controlnet_info:
+                prompt[NODES['flux_lora_image']]["inputs"]["image"] = controlnet_info["depth"]['name']
 
         # Connect final node to FluxGuidance
         prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
@@ -2232,15 +2396,14 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         return prompt, NODES
 
-    def refine_flux(self, context, depth_path=None, canny_path=None, mask_path=None, render_path=None, normal_path=None):
+    def refine_flux(self, context, controlnet_info=None, mask_info=None, render_info=None, ipadapter_ref_info=None):
         """     
         Refines the image using Flux 1 in ComfyUI.         
         :param context: Blender context.         
-        :param depth_path: Path to the depth map image.
-        :param canny_path: Path to the canny edge image.
-        :param mask_path: Path to the mask image for inpainting.
-        :param render_path: Path to the input render image.
-        :param normal_path: Path to the normal map image.         
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param mask_info: Uploaded mask image info.
+        :param render_info: Uploaded render image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
         :return: Refined image.     
         """
         # Setup connection parameters
@@ -2254,21 +2417,20 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt, NODES = self._create_img2img_base_prompt_flux(context)
         
         # Configure IPAdapter for Flux if enabled
-        if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
-            self.configure_ipadapter_flux(prompt, context, NODES)
+        if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
+            self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
         
         # Configure based on generation method
-        self._configure_refinement_mode_flux(prompt, context, render_path, mask_path, NODES)
+        self._configure_refinement_mode_flux(prompt, context, render_info, mask_info, NODES)
         
         # Set up image inputs for different controlnet types
-        self._refine_configure_images_flux(prompt, depth_path, canny_path, normal_path, render_path, NODES)
+        self._refine_configure_images_flux(prompt, render_info, NODES)
         
         # Build ControlNet chain if not using Depth LoRA
         if not context.scene.generation_method == 'uv_inpaint':
             if not context.scene.use_flux_lora:
-                prompt= self._refine_build_controlnet_chain_flux(
-                    context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
-                    {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+                prompt = self._refine_build_controlnet_chain_flux(
+                    context, prompt, controlnet_info, NODES
                 )
             else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
                 final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
@@ -2307,7 +2469,8 @@ class ComfyUIGenerate(bpy.types.Operator):
                     del prompt["30"] # EmptyLatentImage
 
                 # Set the image for the Flux LoRA
-                prompt[NODES['flux_lora_image']]["inputs"]["image"] = depth_path
+                if controlnet_info and "depth" in controlnet_info:
+                    prompt[NODES['flux_lora_image']]["inputs"]["image"] = controlnet_info["depth"]['name']
         
         # Save prompt for debugging
         self._save_prompt_to_file(prompt, revision_dir)
@@ -2333,20 +2496,23 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Return the refined image
         return images[NODES['save_image']][0]
 
-    def _configure_refinement_mode_flux(self, prompt, context, render_path, mask_path, NODES):
+    def _configure_refinement_mode_flux(self, prompt, context, render_info, mask_info, NODES):
         """Configures the prompt based on the specific refinement mode for Flux."""
         # Configure based on generation method
         if context.scene.generation_method == 'refine':
             # Configure for refine mode - load render directly
-            prompt[NODES['render_image']]["inputs"]["image"] = render_path
-            prompt[NODES['vae_encode']]["inputs"]["pixels"] = [NODES['render_image'], 0]
+            if render_info:
+                prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
+                prompt[NODES['vae_encode']]["inputs"]["pixels"] = [NODES['render_image'], 0]
             # Connect latent to sampler
             prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['vae_encode'], 0]
         
         elif context.scene.generation_method in ['uv_inpaint', 'sequential']:
             # Configure for inpainting modes
-            prompt[NODES['mask_image']]["inputs"]["image"] = mask_path
-            prompt[NODES['input_image']]["inputs"]["image"] = render_path
+            if mask_info:
+                prompt[NODES['mask_image']]["inputs"]["image"] = mask_info['name']
+            if render_info:
+                prompt[NODES['input_image']]["inputs"]["image"] = render_info['name']
             
             # Configure mask processing
             if not context.scene.blur_mask:
@@ -2382,11 +2548,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                 prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['vae_encode_inpaint'], 0]
             
             if context.scene.generation_method == 'uv_inpaint':
-                self._configure_uv_inpainting_mode_flux(prompt, context, render_path, NODES)
+                self._configure_uv_inpainting_mode_flux(prompt, context, render_info, NODES)
             else:  # Sequential mode
                 self._configure_sequential_mode_flux(prompt, context, NODES)
 
-    def _configure_uv_inpainting_mode_flux(self, prompt, context, render_path, NODES):
+    def _configure_uv_inpainting_mode_flux(self, prompt, context, render_info, NODES):
         """Configures the prompts for UV inpainting mode in Flux."""
         # UV inpainting specific configuration
         prompt[NODES['upscale_uv']]["inputs"]["image"] = [NODES['input_image'], 0]
@@ -2402,11 +2568,12 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
         
         # Object-specific prompt if available
-        current_object_name = os.path.basename(render_path).split('.')[0]
-        object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
-        if object_prompt:
-            uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching"
-            prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
+        if render_info and 'name' in render_info:
+            current_object_name = os.path.basename(render_info['name']).split('.')[0]
+            object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
+            if object_prompt:
+                uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching"
+                prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
 
     def _configure_sequential_mode_flux(self, prompt, context, NODES):
         """Configures the prompt for sequential generation mode in Flux."""
@@ -2416,24 +2583,22 @@ class ComfyUIGenerate(bpy.types.Operator):
         else:
             # Set the noise_mask flag according to context.scene.differential_noise
             prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
-        
-        # Note: Flux doesn't support IPAdapter in the same way as SDXL
 
-    def _refine_configure_images_flux(self, prompt, depth_path, canny_path, normal_path, render_path, NODES):
+    def _refine_configure_images_flux(self, prompt, render_info, NODES):
         """Configures the input images for the refinement process in Flux."""
         # Set render image if provided
-        if render_path:
-            prompt[NODES['render_image']]["inputs"]["image"] = render_path
+        if render_info:
+            prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
         
         # Control images are handled by the controlnet chain builder
 
-    def _refine_build_controlnet_chain_flux(self, prompt, context, depth_path, canny_path, normal_path, NODES):
+    def _refine_build_controlnet_chain_flux(self, prompt, context, controlnet_info, NODES):
         """Builds the ControlNet chain for refinement process with Flux."""
         input = NODES['pos_prompt'] if not context.scene.differential_diffusion else NODES['inpaint_conditioning']
         # For Flux, the controlnet chain connects to the guidance node
         prompt, final_node = self._build_controlnet_chain_extended(
             context, prompt, input, input, NODES['vae_loader'],
-            {"depth": depth_path, "canny": canny_path, "normal": normal_path}
+            controlnet_info
         )
         # Connect final node to FluxGuidance conditioning input
         prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]

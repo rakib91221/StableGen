@@ -209,16 +209,24 @@ class StableGenPanel(bpy.types.Panel):
             config_error_message = "Output Path Invalid"
         elif not addon_prefs.server_address:
             config_error_message = "Server Address Missing"
+        elif not addon_prefs.server_online:
+            config_error_message = "Cannot reach server"
 
         action_row = layout.row()
         action_row.scale_y = 2.0 # Scale the row vertically
 
         if config_error_message:
-            action_row.operator("object.test_stable", text="Cannot generate: " + config_error_message, icon="X")
-            action_row.enabled = False
+            # Split the row to have the error message/disabled button and the refresh button
+            if config_error_message == "Cannot reach server":
+                split = action_row.split(factor=0.85, align=True) # Adjust factor as needed
+                split.operator("object.test_stable", text="Cannot generate: " + config_error_message, icon="ERROR") # Use ERROR icon
+                # Use the operator from __init__.py
+                split.operator("stablegen.check_server_status", text="", icon='FILE_REFRESH')
+            else:
+                action_row.operator("object.test_stable", text="Cannot generate: " + config_error_message, icon="ERROR")
+                action_row.enabled = False
         else:
             action_row.enabled = True
-
             if not bpy.app.online_access:
                 action_row.operator("object.test_stable", text="Enable online access in preferences", icon="ERROR")
                 action_row.enabled = False
@@ -252,8 +260,10 @@ class StableGenPanel(bpy.types.Panel):
                         overall_progress_factor = (current_image_idx + current_image_decimal_progress) / total_images if total_images > 0 else 0
                         overall_progress_factor_clamped = max(0.0, min(overall_progress_factor, 1.0))
 
+                        current_img = min(current_image_idx + 1, total_images)  # Clamp to total_images
+
                         progress_col.progress(
-                            text=f"Overall: Image {current_image_idx + 1}/{total_images}",
+                            text=f"Overall: Image {current_img}/{total_images}",
                             factor=overall_progress_factor_clamped # Ensure factor is <= 1.0 (logic maintained)
                         )
                         
@@ -265,7 +275,7 @@ class StableGenPanel(bpy.types.Panel):
         
         bake_row = layout.row()
         if config_error_message:
-            bake_row.operator("object.bake_textures", text="Cannot Bake: " + config_error_message, icon="X")
+            bake_row.operator("object.bake_textures", text="Cannot Bake: " + config_error_message, icon="ERROR")
             bake_row.enabled = False
         else:
             bake_row.operator("object.bake_textures", text="Bake Textures", icon="RENDER_STILL")
@@ -324,7 +334,9 @@ class StableGenPanel(bpy.types.Panel):
             # Split for model name
             split = params_container.split(factor=0.25)
             split.label(text="Checkpoint:")
-            split.prop(scene, "model_name", text="")
+            row = split.row(align=True)
+            row.prop(scene, "model_name", text="")
+            row.operator("stablegen.refresh_checkpoint_list", text="", icon='FILE_REFRESH')
                 
 
             # Split for model architecture
@@ -342,7 +354,7 @@ class StableGenPanel(bpy.types.Panel):
             split.label(text="Target Objects:")
             split.prop(scene, "texture_objects", text="")
 
-        # --- Helper to create collapsible sections ---
+        # Helper to create collapsible sections
         def draw_collapsible_section(parent_layout, toggle_prop_name, title, icon="NONE"):
             if not hasattr(scene, toggle_prop_name):
                 setattr(bpy.types.Scene, toggle_prop_name, bpy.props.BoolProperty(name=title, default=False))
@@ -409,14 +421,6 @@ class StableGenPanel(bpy.types.Panel):
                 row.alignment = 'CENTER'
                 row.label(text="LoRA Units", icon="BRUSHES_ALL") # Using decimate icon for LoRA
 
-                # Get ComfyUI directory and construct the specific path for LoRAs
-                comfyui_dir = addon_prefs.comfyui_dir 
-                actual_loras_path = ""
-                if comfyui_dir and os.path.isdir(comfyui_dir):
-                    actual_loras_path = os.path.join(comfyui_dir, "models", "loras")
-                
-                loras_path_is_set_and_valid = bool(actual_loras_path) and os.path.isdir(actual_loras_path)
-
                 if scene.lora_units:
                     for i, lora_unit in enumerate(scene.lora_units):
                         is_selected_lora = (scene.lora_units_index == i)
@@ -441,9 +445,6 @@ class StableGenPanel(bpy.types.Panel):
                 if not scene.lora_units:
                     # Only one button if no LoRA units are present
                     button_text = "Add LoRA Unit" # Default text
-                    
-                    if not loras_path_is_set_and_valid:
-                        button_text = "Set ComfyUI Directory in Preferences"
                     
                     # Draw the operator with the dynamically determined text
                     btn_row_lora.operator("stablegen.add_lora_unit", text=button_text, icon="ADD")

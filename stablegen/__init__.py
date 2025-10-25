@@ -5,13 +5,15 @@ from .render_tools import BakeTextures, AddCameras, SwitchMaterial, ExportOrbitG
 from .utils import AddHDRI, ApplyModifiers, CurvesToMesh
 from .generator import ComfyUIGenerate, Reproject, Regenerate
 import os
+import requests
+import json
 from bpy.app.handlers import persistent
 
 bl_info = {
     "name": "StableGen",
     "category": "Object",
     "author": "Ondrej Sakala",
-    "version": (0, 0, 8),
+    "version": (0, 0, 9),
     'blender': (4, 2, 0)
 }
 
@@ -34,37 +36,102 @@ classes = [
     Regenerate
 ]
 
-def update_combined(self, context): # Combined with load_handler to load controlnet unit on first setup
+# Global caches for model lists fetched via API
+_cached_checkpoint_list = [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+_cached_lora_list = [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+
+def update_combined(self, context):
+    # This now primarily updates the preset status and might trigger Enum updates implicitly
+    # Check if server is reachable
+    if not check_server_availability(self.server_address, timeout=0.5):
+        self.server_online = False
+        print("ComfyUI server is not reachable.")
+        return None
+    else:
+        self.server_online = True
+
     update_parameters(self, context)
     load_handler(None)
 
+    # Automatically Refresh Lists on Server Change
+    # Check if server address is valid before trying to refresh
+    if self.server_address:
+         print("Server address changed, attempting to refresh model lists...")
+         def deferred_refresh():
+             try:
+                  bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
+                  bpy.ops.stablegen.refresh_lora_list('INVOKE_DEFAULT')
+                  bpy.ops.stablegen.refresh_controlnet_mappings('INVOKE_DEFAULT') # Refresh CN too
+             except Exception as e:
+                  print(f"Error during deferred refresh: {e}")
+             return None # Timer runs only once
+         bpy.app.timers.register(deferred_refresh, first_interval=0.1)
+    else:
+         print("Server address cleared, cannot refresh lists.")
+         global _cached_checkpoint_list, _cached_lora_list
+         _cached_checkpoint_list = [("NO_SERVER", "Set Server Address", "...")]
+         _cached_lora_list = [("NO_SERVER", "Set Server Address", "...")]
+
     # Checkpoint model reset
     current_checkpoint = context.scene.model_name
+    # update_model_list is now the API version
     checkpoint_items = update_model_list(self, context)
     valid_checkpoint_ids = {item[0] for item in checkpoint_items}
-
-    placeholder_id = 'NONE_AVAILABLE'
+    placeholder_id = next((item[0] for item in checkpoint_items if item[0].startswith("NO_") or item[0] == "NONE_FOUND"), None)
 
     if current_checkpoint not in valid_checkpoint_ids:
-        if placeholder_id in valid_checkpoint_ids:
+        if placeholder_id:
             context.scene.model_name = placeholder_id
-        elif checkpoint_items: # If no placeholder but other items, pick first
+        elif checkpoint_items: # If no placeholder but other items, pick first valid one
             context.scene.model_name = checkpoint_items[0][0]
+        # else: # No models found at all, leave it potentially invalid or set to a default if possible
 
-    # LoRA unit reset
+    # LoRA unit reset (uses API now)
     if hasattr(context.scene, 'lora_units'):
-        lora_items = get_lora_models(self, context)
+        lora_items = get_lora_models(self, context) # API version
         valid_lora_ids = {item[0] for item in lora_items}
+        placeholder_lora_id = next((item[0] for item in lora_items if item[0].startswith("NO_") or item[0] == "NONE_FOUND"), None)
 
-        for id, lora_unit in enumerate(context.scene.lora_units):
-            if lora_unit.model_name not in valid_lora_ids or lora_unit.model_name == "NONE_AVAILABLE":
-                # Remove the unit
-                context.scene.lora_units.remove(id)
-    # Check if the current LoRA unit index is valid
-    if context.scene.lora_units_index >= len(context.scene.lora_units) or context.scene.lora_units_index < 0:
-        context.scene.lora_units_index = max(0, len(context.scene.lora_units) - 1)
+        # Iterate safely while removing
+        indices_to_remove = []
+        for i, lora_unit in enumerate(context.scene.lora_units):
+            if lora_unit.model_name not in valid_lora_ids or lora_unit.model_name == placeholder_lora_id:
+                indices_to_remove.append(i)
+
+        # Remove invalid units in reverse order to maintain indices
+        for i in sorted(indices_to_remove, reverse=True):
+             context.scene.lora_units.remove(i)
+
+    # Check/reset current LoRA unit index
+    num_loras = len(context.scene.lora_units)
+    if context.scene.lora_units_index >= num_loras:
+         context.scene.lora_units_index = max(0, num_loras - 1)
+    elif num_loras == 0:
+         context.scene.lora_units_index = 0 # Or -1 if appropriate, ensure index is valid
 
     return None
+
+
+class ControlNetModelMappingItem(bpy.types.PropertyGroup):
+    """Stores info about a detected ControlNet model and its supported types."""
+    name: bpy.props.StringProperty(name="Model Filename") # Read-only, set by refresh op
+
+    # Use Booleans for each supported type
+    supports_depth: bpy.props.BoolProperty(
+        name="Depth",
+        description="Check if this model supports Depth guidance",
+        default=False
+    ) # type: ignore
+    supports_canny: bpy.props.BoolProperty(
+        name="Canny",
+        description="Check if this model supports Canny/Edge guidance",
+        default=False
+    ) # type: ignore
+    supports_normal: bpy.props.BoolProperty(
+        name="Normal",
+        description="Check if this model supports Normal map guidance",
+        default=False
+    ) # type: ignore
 
 class StableGenAddonPreferences(bpy.types.AddonPreferences):
     """     
@@ -72,35 +139,11 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
     """
     bl_idname = __package__
 
-    comfyui_dir: bpy.props.StringProperty(
-        name="ComfyUI Directory",
-        description="Path to the ComfyUI directory.",
-        default="",
-        subtype='DIR_PATH',
-        update=update_combined
-    ) # type: ignore
-
-    external_checkpoints_dir: bpy.props.StringProperty(
-        name="External Checkpoints Directory (Optional)",
-        description="Path to an additional directory for checkpoint models. Ensure ComfyUI is also configured to see this path (e.g., via extra_model_paths.yaml).",
-        default="",
-        subtype='DIR_PATH',
-        update=update_combined,
-    ) # type: ignore
-
-    external_loras_dir: bpy.props.StringProperty(
-        name="External LoRAs Directory (Optional)",
-        description="Path to an additional directory for LoRA models. Ensure ComfyUI is also configured to see this path.",
-        default="",
-        subtype='DIR_PATH',
-        update=update_combined,
-    ) # type: ignore
-
     server_address: bpy.props.StringProperty(
         name="Server Address",
         description="Address of the ComfyUI server",
         default="127.0.0.1:8188",
-        update=update_parameters
+        update=update_combined
     ) # type: ignore
 
     output_dir: bpy.props.StringProperty(
@@ -111,19 +154,24 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         update=update_parameters
     ) # type: ignore
 
-    controlnet_mapping: bpy.props.StringProperty(
-        name="ControlNet Mapping",
-        description="JSON mapping of controlnet type to model files. Example: {\"depth\": [\"controlnet_depth_sdxl.safetensors\", \"control_v11f1p_sd15_depth.pth\"], \"canny\": [\"sdxl_canny.safetensors\"]}\
-            \nOnly following types are currently supported: depth, canny",
-        default='{"depth": ["controlnet_depth_sdxl.safetensors", "sdxl_depth_alt.safetensors","sdxl_promax.safetensors", "controlnet_flux1_union_pro.safetensors"], "canny": ["sdxl_promax.safetensors", "controlnet_flux1_union_pro.safetensors"], "normal": ["sdxl_promax.safetensors"]}',
-        update=update_parameters
-    )  # type: ignore
+    controlnet_model_mappings: bpy.props.CollectionProperty(
+        type=ControlNetModelMappingItem,
+        name="ControlNet Model Mappings"
+    ) # type: ignore
     
     save_blend_file: bpy.props.BoolProperty(
         name="Save Blend File",
         description="Save the current Blender file with packed textures",
         default=False,
         update=update_parameters
+    ) # type: ignore
+
+    controlnet_mapping_index: bpy.props.IntProperty(default=0, name="Active ControlNet Mapping Index") # type: ignore
+
+    server_online: bpy.props.BoolProperty(
+        name="Server Online",
+        description="Indicates if the ComfyUI server is reachable",
+        default=False
     ) # type: ignore
 
     def draw(self, context):
@@ -133,19 +181,298 @@ class StableGenAddonPreferences(bpy.types.AddonPreferences):
         :return: None     
         """
         layout = self.layout
-        layout.prop(self, "comfyui_dir")
         layout.prop(self, "output_dir")
-        layout.prop(self, "server_address")
-        layout.prop(self, "controlnet_mapping")
+        row = layout.row(align=True)
+        row.prop(self, "server_address")
+
+        # Add the check button
+        row.operator("stablegen.check_server_status", text="", icon='FILE_REFRESH')
+
         layout.prop(self, "save_blend_file")
+
         layout.separator()
-        split = layout.split(factor=0.5)
-        split.label(text=self.bl_rna.properties['external_checkpoints_dir'].name)
-        split.prop(self, "external_checkpoints_dir", text="")
-        
-        split = layout.split(factor=0.5)
-        split.label(text=self.bl_rna.properties['external_loras_dir'].name)
-        split.prop(self, "external_loras_dir", text="")
+
+        box = layout.box()
+        row = box.row()
+        row.label(text="ControlNet Model Assignments:")
+        row.operator("stablegen.refresh_controlnet_mappings", text="", icon='FILE_REFRESH')
+
+        # Use a template_list for a cleaner UI if many models
+        # Requires creating a UIList class, more complex.
+        # Simple loop for now:
+        if not self.controlnet_model_mappings:
+             box.label(text="No models found or list not refreshed.", icon='INFO')
+        else:
+             rows = max(1, min(len(self.controlnet_model_mappings), 5)) # Show up to 5 rows
+             box.template_list(
+                  "STABLEGEN_UL_ControlNetMappingList", # Custom UIList identifier
+                  "",                  # Data List ID (unused here)
+                  self,                # Data source (the preferences instance)
+                  "controlnet_model_mappings", # Property name of the collection
+                  self,                # Active item index source
+                  "controlnet_mapping_index", # Property name for active index
+                  rows=rows
+             )
+
+class CheckServerStatus(bpy.types.Operator):
+    """Checks if the ComfyUI server is reachable."""
+    bl_idname = "stablegen.check_server_status"
+    bl_label = "Check Server Status"
+    bl_description = "Ping the ComfyUI server to check connectivity"
+
+    @classmethod
+    def poll(cls, context):
+        # Can run if server address is set
+        prefs = context.preferences.addons.get(__package__)
+        # Also check that another check isn't running if using threading later
+        # global _is_refreshing
+        # return prefs and prefs.preferences.server_address and not _is_refreshing
+        return prefs and prefs.preferences.server_address # Simplified for sync check
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        server_addr = prefs.server_address
+
+        print(f"Checking server status at {server_addr}...")
+        # Use the existing check function with a short timeout
+        is_online = check_server_availability(server_addr, timeout=0.75) # Use slightly longer than 0.5?
+
+        prefs.server_online = is_online # Update the preference property
+
+        if is_online:
+            self.report({'INFO'}, f"ComfyUI server is online at {server_addr}.")
+            # Optionally trigger full refresh here if desired on manual check success
+            # bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
+            # bpy.ops.stablegen.refresh_lora_list('INVOKE_DEFAULT')
+            # bpy.ops.stablegen.refresh_controlnet_mappings('INVOKE_DEFAULT')
+        else:
+            self.report({'ERROR'}, f"ComfyUI server unreachable or timed out at {server_addr}.")
+
+        # The update function on the property handles UI redraw
+
+        return {'FINISHED'}
+
+class STABLEGEN_UL_ControlNetMappingList(bpy.types.UIList):
+    """UIList for displaying ControlNet model mappings."""
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        prefs = data # 'data' is the AddonPreferences instance
+        # 'item' is the ControlNetModelMappingItem instance
+
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Use a split so the filename gets more space than the checkboxes
+            split = layout.split(factor=0.65)  # adjust factor to give filename more room
+            col_name = split.column(align=True)
+            col_checks = split.column(align=True)
+
+            # Layout: Filename | [x] Depth | [x] Canny | [x] Normal
+            col_name.prop(item, "name", text="", emboss=False) # Show filename read-only
+
+            # Add checkboxes for each type using icons
+            row = col_checks.row(align=True)
+            row.prop(item, "supports_depth", text="Depth", toggle=True)
+            row.prop(item, "supports_canny", text="Canny", toggle=True)
+            row.prop(item, "supports_normal", text="Normal", toggle=True)
+            # Add more props here if you add types
+
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon_value=icon)
+
+class RefreshControlNetMappings(bpy.types.Operator):
+    """Fetches ControlNet models from ComfyUI API and updates the mapping list."""
+    bl_idname = "stablegen.refresh_controlnet_mappings"
+    bl_label = "Refresh ControlNet Model List"
+    bl_description = "Connect to ComfyUI server to get ControlNet models and update assignments"
+
+    @classmethod
+    def poll(cls, context):
+        # Can run if server address is set
+        prefs = context.preferences.addons.get(__package__)
+        return prefs and prefs.preferences.server_address
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        server_models = fetch_from_comfyui_api(context, "/models/controlnet")
+
+        if server_models is None: # Indicates connection/config error
+             self.report({'ERROR'}, "Could not fetch models. Check server address and ensure ComfyUI is running.")
+             return {'CANCELLED'}
+
+        if not server_models:
+             self.report({'WARNING'}, "No ControlNet models found on the server.")
+             # Clear existing list if server returns empty
+             prefs.controlnet_model_mappings.clear()
+             return {'FINISHED'}
+
+        # Synchronization Logic
+        current_mappings = {item.name: item for item in prefs.controlnet_model_mappings}
+        server_model_set = set(server_models)
+        current_model_set = set(current_mappings.keys())
+
+        # 1. Remove models from prefs that are no longer on the server
+        models_to_remove = current_model_set - server_model_set
+        indices_to_remove = []
+        for i, item in enumerate(prefs.controlnet_model_mappings):
+            if item.name in models_to_remove:
+                indices_to_remove.append(i)
+
+        # Remove in reverse order to avoid index issues
+        for i in sorted(indices_to_remove, reverse=True):
+             prefs.controlnet_model_mappings.remove(i)
+             # Adjust index if necessary
+             if prefs.controlnet_mapping_index >= len(prefs.controlnet_model_mappings):
+                  prefs.controlnet_mapping_index = max(0, len(prefs.controlnet_model_mappings) - 1)
+
+
+        # 2. Add new models found on the server
+        models_to_add = server_model_set - current_model_set
+        for model_name in sorted(list(models_to_add)):
+            new_item = prefs.controlnet_model_mappings.add()
+            new_item.name = model_name
+
+            # Guessing Logic
+            name_lower = model_name.lower()
+            is_union_guess = 'union' in name_lower or 'promax' in name_lower
+
+            # Guess based on keywords, prioritizing union
+            if is_union_guess:
+                new_item.supports_depth = True
+                new_item.supports_canny = True
+                new_item.supports_normal = True # Assume union supports all current types
+                print(f"  Guessed '{model_name}' as Union (Depth, Canny, Normal).")
+            else:
+                if 'depth' in name_lower:
+                    new_item.supports_depth = True
+                    print(f"  Guessed '{model_name}' as Depth.")
+                if 'canny' in name_lower or 'lineart' in name_lower or 'scribble' in name_lower:
+                    new_item.supports_canny = True
+                    print(f"  Guessed '{model_name}' as Canny.")
+                if 'normal' in name_lower:
+                    new_item.supports_normal = True
+                    print(f"  Guessed '{model_name}' as Normal.")
+
+            # If no specific type keyword found (and not union), leave all as False
+            if not is_union_guess and not new_item.supports_depth and not new_item.supports_canny and not new_item.supports_normal:
+                 print(f"  Could not guess type for '{model_name}'. Please assign manually.")
+
+        self.report({'INFO'}, f"Refreshed ControlNet list: {len(models_to_add)} added, {len(models_to_remove)} removed.")
+        return {'FINISHED'}
+    
+def check_server_availability(server_address, timeout=0.5):
+    """
+    Quickly checks if the ComfyUI server is responding.
+
+    Args:
+        server_address (str): The address:port of the ComfyUI server.
+        timeout (float): Strict timeout in seconds for this check.
+
+    Returns:
+        bool: True if the server responds quickly, False otherwise.
+    """
+    if not server_address:
+        return False
+
+    # Use a lightweight endpoint like /queue or root '/'
+    # /system_stats might be slightly heavier
+    url = f"http://{server_address}/queue" # Or just f"http://{server_address}/"
+    # print(f"Pinging server at: {url} (Timeout: {timeout}s)") # Debug
+    try:
+        # HEAD request is faster as it doesn't download the body
+        response = requests.head(url, timeout=timeout)
+        # Check for successful status codes (2xx, maybe 404 if hitting root)
+        # /queue typically gives 200 OK even on GET/HEAD
+        response.raise_for_status()
+        # print("  Server responded.") # Debug
+        return True
+    except requests.exceptions.Timeout:
+        print(f"  Initial server check failed: Timeout ({timeout}s).")
+        return False
+    except requests.exceptions.ConnectionError:
+        print("  Initial server check failed: Connection Error.")
+        return False
+    except requests.exceptions.RequestException as e:
+        # Other errors (like 404 on root) might still mean the server is *running*
+        # but depends on the chosen endpoint. /queue should be reliable.
+        # Let's consider most request exceptions here as a failure to connect quickly.
+        print(f"  Initial server check failed: Request Error ({e}).")
+        return False
+    except Exception as e:
+        print(f"  Initial server check failed: Unexpected Error ({e}).")
+        return False
+
+def fetch_from_comfyui_api(context, endpoint):
+    """
+    Fetches data from a specified ComfyUI API endpoint.
+
+    Args:
+        context: Blender context to access addon preferences.
+        endpoint (str): The API endpoint path (e.g., "/models/checkpoints").
+
+    Returns:
+        list: A list of items returned by the API (usually filenames),
+              or an empty list if the request fails or returns invalid data.
+              Returns None if the server address is not set.
+    """
+    addon_prefs = context.preferences.addons.get(__package__)
+    if not addon_prefs:
+        print("Error: Could not access StableGen addon preferences.")
+        return None # Indicate config error
+
+    server_address = addon_prefs.preferences.server_address
+    if not server_address:
+        print("Error: ComfyUI Server Address is not set in preferences.")
+        # Return None to signify a configuration issue preventing the API call
+        return None
+    
+    if not check_server_availability(server_address, timeout=0.5): # Use a strict timeout here
+         # Error message printed by check_server_availability
+         return None # Server unreachable or timed out on initial check
+    
+    # Ensure endpoint starts with a slash
+    if not endpoint.startswith('/'):
+        endpoint = '/' + endpoint
+
+    url = f"http://{server_address}{endpoint}"
+
+    try:
+        response = requests.get(url, timeout=5) # Add a timeout
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+
+        # Basic validation: Check if the response is a list (expected for model lists)
+        if isinstance(data, list):
+            # Further check if list items look like filenames (simple check)
+            if all(isinstance(item, str) for item in data):
+                return data # Return the list of filenames
+            elif data: # List exists but contains non-strings
+                 print(f"  Warning: API endpoint {endpoint} returned a list, but it contains non-string items: {data[:5]}...") # Show first few
+                 # Decide how to handle: return empty, or try to filter strings?
+                 # For now, let's filter assuming filenames are strings:
+                 string_items = [item for item in data if isinstance(item, str)]
+                 if string_items:
+                      return string_items
+                 else:
+                      print(f"  Error: No valid string filenames found in list from {endpoint}.")
+                      return [] # Return empty list if no strings found
+            else:
+                 # API returned an empty list, which is valid
+                 return []
+        else:
+            print(f"  Error: API endpoint {endpoint} did not return a JSON list. Received: {type(data)}")
+            return [] # Return empty list on unexpected type
+
+    except requests.exceptions.Timeout:
+        print(f"  Error: Timeout connecting to {url}.")
+    except requests.exceptions.ConnectionError:
+        print(f"  Error: Connection failed to {url}. Is ComfyUI running and accessible?")
+    except requests.exceptions.RequestException as e:
+        print(f"  Error fetching from {url}: {e}")
+    except json.JSONDecodeError:
+        print(f"  Error: Could not decode JSON response from {url}. Response text: {response.text}")
+    except Exception as e:
+        print(f"  An unexpected error occurred fetching from {url}: {e}")
+
+    return [] # Return empty list on any failure
 
 
 def get_models_from_directory(scan_root_path: str, valid_extensions: tuple, type_for_description: str, path_prefix_for_id: str = ""):
@@ -208,35 +535,12 @@ def merge_and_deduplicate_models(model_lists: list):
     return merged_items
 
 def update_model_list(self, context):
-    """
-    Populates EnumProperty items with checkpoint models from ComfyUI/models/checkpoints.
-    Returns a list of (identifier, name, description) tuples.
-    """
-    addon_prefs = context.preferences.addons[__package__].preferences
-    comfyui_base_dir = addon_prefs.comfyui_dir
-    external_ckpts_dir = addon_prefs.external_checkpoints_dir
-    
-    all_model_items = []
-
-    # 1. Scan ComfyUI standard checkpoints path
-    if comfyui_base_dir and os.path.isdir(comfyui_base_dir):
-        if context.scene.model_architecture == 'sdxl':
-            comfy_ckpts_path = os.path.join(comfyui_base_dir, "models", "checkpoints")
-            types = ('.safetensors', '.ckpt', '.pth', '.sft')
-        else:
-            comfy_ckpts_path = os.path.join(comfyui_base_dir, "models", "unet") # For FLUX1
-            types = ('.safetensors', '.ckpt', '.pth', '.sft', '.gguf')
-        all_model_items.append(
-            get_models_from_directory(comfy_ckpts_path, types, "Checkpoint")
-        )
-
-    # 2. Scan External Checkpoints Path
-    if external_ckpts_dir and os.path.isdir(external_ckpts_dir):
-        all_model_items.append(
-            get_models_from_directory(external_ckpts_dir, types, "Ext. Checkpoint")
-        )
-    
-    return merge_and_deduplicate_models(all_model_items)
+    """Returns the cached list of checkpoint/unet models."""
+    global _cached_checkpoint_list
+    # Basic check in case cache hasn't been populated correctly
+    if not _cached_checkpoint_list:
+         return [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+    return _cached_checkpoint_list
 
 def update_union(self, context):
     if "union" in self.model_name.lower() or "promax" in self.model_name.lower():
@@ -325,40 +629,164 @@ class LoRAUnit(bpy.types.PropertyGroup):
 
 def get_controlnet_models(context, unit_type):
     """
-    Get available ControlNet models for a given type.
+    Get available ControlNet models suitable for a specific 'unit_type'
+    based on user assignments in addon preferences.
+
+    Args:
+        context: Blender context.
+        unit_type (str): The type required (e.g., 'depth', 'canny').
+
+    Returns:
+        list: A list of (identifier, name, description) tuples for EnumProperty.
     """
-    addon_prefs = context.preferences.addons[__package__].preferences
-    try:
-        import json
-        mapping = json.loads(addon_prefs.controlnet_mapping)
-        if unit_type in mapping:
-            return [(model, model, "") for model in mapping[unit_type]]
-    except json.JSONDecodeError:
-        return []
-    return []
+    items = []
+    prefs = context.preferences.addons.get(__package__)
+    if not prefs:
+        return [("NO_PREFS", "Addon Error", "Could not access preferences")]
+
+    mappings = prefs.preferences.controlnet_model_mappings
+
+    if not mappings:
+         return [("REFRESH", "Refresh List in Prefs", "Fetch models via Preferences")]
+
+    # Determine which boolean property corresponds to the requested unit_type
+    prop_name = f"supports_{unit_type}"
+
+    found_count = 0
+    for item in mappings:
+        # Check if the item object actually has the property (safety check)
+        if hasattr(item, prop_name):
+            # Check if the boolean flag for the required type is True
+            if getattr(item, prop_name):
+                # Identifier and Name are the filename
+                items.append((item.name, item.name, f"ControlNet: {item.name}"))
+                found_count += 1
+
+    if found_count == 0:
+         return [("NO_ASSIGNED", f"No models assigned to '{unit_type}'", f"Assign types in Addon Preferences or Refresh")]
+
+    # Sort alphabetically
+    items.sort(key=lambda x: x[1])
+
+    return items
 
 def get_lora_models(self, context):
-    addon_prefs = context.preferences.addons[__package__].preferences
-    comfyui_base_dir = addon_prefs.comfyui_dir
-    external_loras_dir = addon_prefs.external_loras_dir
+    """Returns the cached list of LoRA models."""
+    global _cached_lora_list
+    # Basic check
+    if not _cached_lora_list:
+        return [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+    return _cached_lora_list
 
-    all_lora_items = []
+class RefreshCheckpointList(bpy.types.Operator):
+    """Fetches Checkpoint/UNET models from ComfyUI API and updates the cache."""
+    bl_idname = "stablegen.refresh_checkpoint_list"
+    bl_label = "Refresh Checkpoint/UNET List"
+    bl_description = "Connect to ComfyUI server to get available Checkpoint/UNET models"
 
-    # 1. Scan ComfyUI standard LoRAs path
-    if comfyui_base_dir and os.path.isdir(comfyui_base_dir):
-        comfy_loras_path = os.path.join(comfyui_base_dir, "models", "loras")
-        all_lora_items.append(
-            get_models_from_directory(comfy_loras_path, ('.safetensors', '.ckpt', '.pt', '.pth'), "LoRA")
-        )
+    @classmethod
+    def poll(cls, context):
+        prefs = context.preferences.addons.get(__package__)
+        return prefs and prefs.preferences.server_address
 
+    def execute(self, context):
+        global _cached_checkpoint_list
+        items = []
+        model_list = None # Initialize to None
 
-    # 2. Scan External LoRAs Path
-    if external_loras_dir and os.path.isdir(external_loras_dir):
-        all_lora_items.append(
-            get_models_from_directory(external_loras_dir, ('.safetensors', '.ckpt', '.pt', '.pth'), "Ext. LoRA")
-        )
-        
-    return merge_and_deduplicate_models(all_lora_items)
+        # Determine endpoint based on current architecture setting
+        if context.scene.model_architecture == 'sdxl':
+            model_list = fetch_from_comfyui_api(context, "/models/checkpoints")
+            model_type_desc = "Checkpoint"
+        else: # flux1
+            model_list = fetch_from_comfyui_api(context, "/models/unet")
+            model_type_desc = "UNET"
+
+        if model_list is None: # Config error
+            _cached_checkpoint_list = [("NO_SERVER", "Set Server Address", "Cannot fetch")]
+            self.report({'ERROR'}, "Cannot fetch models. Check server address.")
+            # Force UI update if possible
+            context.area.tag_redraw()
+            return {'CANCELLED'}
+        elif not model_list: # API ok, but empty list
+             _cached_checkpoint_list = [("NONE_FOUND", f"No {model_type_desc}s Found", "Server list is empty")]
+             self.report({'WARNING'}, f"No {model_type_desc} models found on server.")
+        else: # Models found
+            for model_name in sorted(model_list):
+                items.append((model_name, model_name, f"{model_type_desc}: {model_name}"))
+            _cached_checkpoint_list = items
+            self.report({'INFO'}, f"Refreshed {model_type_desc} list ({len(items)} found).")
+
+        # Reset Logic after refresh
+        current_checkpoint = context.scene.model_name
+        valid_checkpoint_ids = {item[0] for item in _cached_checkpoint_list}
+        placeholder_id = next((item[0] for item in _cached_checkpoint_list if item[0].startswith("NO_") or item[0] == "NONE_FOUND"), None)
+
+        if current_checkpoint not in valid_checkpoint_ids:
+            if placeholder_id:
+                context.scene.model_name = placeholder_id
+            elif _cached_checkpoint_list:
+                context.scene.model_name = _cached_checkpoint_list[0][0]
+
+        # Force UI update if possible (e.g., redraw panels)
+        if context.area:
+            context.area.tag_redraw()
+        # A more robust redraw might be needed depending on context
+        # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
+        return {'FINISHED'}
+    
+class RefreshLoRAList(bpy.types.Operator):
+    """Fetches LoRA models from ComfyUI API and updates the cache."""
+    bl_idname = "stablegen.refresh_lora_list"
+    bl_label = "Refresh LoRA List"
+    bl_description = "Connect to ComfyUI server to get available LoRA models"
+
+    @classmethod
+    def poll(cls, context):
+        prefs = context.preferences.addons.get(__package__)
+        return prefs and prefs.preferences.server_address
+
+    def execute(self, context):
+        global _cached_lora_list
+        items = []
+        lora_list = fetch_from_comfyui_api(context, "/models/loras")
+
+        if lora_list is None: # Config error
+            _cached_lora_list = [("NO_SERVER", "Set Server Address", "Cannot fetch")]
+            self.report({'ERROR'}, "Cannot fetch LoRAs. Check server address.")
+            context.area.tag_redraw()
+            return {'CANCELLED'}
+        elif not lora_list: # API ok, but empty
+             _cached_lora_list = [("NONE_FOUND", "No LoRAs Found", "Server list is empty")]
+             self.report({'WARNING'}, "No LoRA models found on server.")
+        else: # LoRAs found
+            for lora_name in sorted(lora_list):
+                items.append((lora_name, lora_name, f"LoRA: {lora_name}"))
+            _cached_lora_list = items
+            self.report({'INFO'}, f"Refreshed LoRA list ({len(items)} found).")
+
+        # Reset Logic after refresh
+        if hasattr(context.scene, 'lora_units'):
+            valid_lora_ids = {item[0] for item in _cached_lora_list}
+            placeholder_lora_id = next((item[0] for item in _cached_lora_list if item[0].startswith("NO_") or item[0] == "NONE_FOUND"), None)
+            indices_to_remove = []
+            for i, lora_unit in enumerate(context.scene.lora_units):
+                if lora_unit.model_name not in valid_lora_ids or lora_unit.model_name == placeholder_lora_id:
+                    indices_to_remove.append(i)
+            for i in sorted(indices_to_remove, reverse=True):
+                context.scene.lora_units.remove(i)
+
+            num_loras = len(context.scene.lora_units)
+            if context.scene.lora_units_index >= num_loras:
+                context.scene.lora_units_index = max(0, num_loras - 1)
+            elif num_loras == 0:
+                context.scene.lora_units_index = 0
+
+        if context.area:
+            context.area.tag_redraw()
+        # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        return {'FINISHED'}
 
 class AddControlNetUnit(bpy.types.Operator):
     bl_idname = "stablegen.add_controlnet_unit"
@@ -461,15 +889,6 @@ class AddLoRAUnit(bpy.types.Operator):
         if not addon_prefs: # Should not happen if addon is enabled
             return False
         addon_prefs = addon_prefs.preferences
-        
-        comfyui_dir = addon_prefs.comfyui_dir
-        external_loras_dir = addon_prefs.external_loras_dir
-
-        # Initial check: at least one base directory must be set
-        if not (comfyui_dir and os.path.isdir(comfyui_dir)) and \
-           not (external_loras_dir and os.path.isdir(external_loras_dir)):
-            cls.poll_message_set("Neither ComfyUI nor External LoRA directory is set/valid.")
-            return False
 
         # Get the merged list of LoRAs.
         # Assuming get_lora_models is robust and returns placeholders if dirs are bad.
@@ -608,7 +1027,7 @@ def load_handler(dummy):
                     if new_lora_unit and scene.lora_units and new_lora_unit == scene.lora_units[-1]:
                         scene.lora_units.remove(len(scene.lora_units)-1)
 
-classes_to_append = [StableGenAddonPreferences, ControlNetUnit, LoRAUnit, AddControlNetUnit, RemoveControlNetUnit, AddLoRAUnit, RemoveLoRAUnit]
+classes_to_append = [CheckServerStatus, RefreshCheckpointList, RefreshLoRAList, STABLEGEN_UL_ControlNetMappingList, ControlNetModelMappingItem, RefreshControlNetMappings, StableGenAddonPreferences, ControlNetUnit, LoRAUnit, AddControlNetUnit, RemoveControlNetUnit, AddLoRAUnit, RemoveLoRAUnit]
 for cls in classes_to_append:
     classes.append(cls)
 
@@ -619,6 +1038,27 @@ def register():
     """
     for cls in classes:
         bpy.utils.register_class(cls)
+
+    def initial_refresh():
+        print("StableGen: Performing initial model list refresh...")
+        try:
+            # Check if server address is set before attempting
+            prefs = bpy.context.preferences.addons.get(__package__)
+            if prefs and prefs.preferences.server_address:
+                 bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
+                 bpy.ops.stablegen.refresh_lora_list('INVOKE_DEFAULT')
+                 bpy.ops.stablegen.refresh_controlnet_mappings('INVOKE_DEFAULT')
+            else:
+                 print("StableGen: Server address not set, skipping initial refresh.")
+            # Run load handler to set defaults
+            load_handler(None)
+        except Exception as e:
+            # Catch potential errors during startup refresh
+            print(f"StableGen: Error during initial refresh: {e}")
+
+        return None # Timer runs only once
+    
+    bpy.app.timers.register(initial_refresh, first_interval=1.0) # Delay slightly
 
     bpy.types.Scene.comfyui_prompt = bpy.props.StringProperty(
         name="ComfyUI Prompt",
@@ -1264,6 +1704,12 @@ def unregister():
     Unregisters the addon.         
     :return: None     
     """
+    # Ensure properties added to preferences are deleted
+    if hasattr(bpy.types.Scene, 'controlnet_model_mappings'): # Check if added to Scene mistakenly
+         del bpy.types.Scene.controlnet_model_mappings
+    if hasattr(bpy.types.Scene, 'controlnet_mapping_index'):
+         del bpy.types.Scene.controlnet_mapping_index
+
     del bpy.types.Scene.use_flux_lora
     del bpy.types.Scene.comfyui_prompt
     del bpy.types.Scene.comfyui_negative_prompt
