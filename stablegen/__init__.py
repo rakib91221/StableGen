@@ -37,8 +37,8 @@ classes = [
 ]
 
 # Global caches for model lists fetched via API
-_cached_checkpoint_list = [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
-_cached_lora_list = [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+_cached_checkpoint_list = [("NONE_AVAILABLE", "None available", "Fetch models from server")]
+_cached_lora_list = [("NONE_AVAILABLE", "None available", "Fetch models from server")]
 
 def update_combined(self, context):
     # This now primarily updates the preset status and might trigger Enum updates implicitly
@@ -241,10 +241,11 @@ class CheckServerStatus(bpy.types.Operator):
 
         if is_online:
             self.report({'INFO'}, f"ComfyUI server is online at {server_addr}.")
-            # Optionally trigger full refresh here if desired on manual check success
-            # bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
-            # bpy.ops.stablegen.refresh_lora_list('INVOKE_DEFAULT')
-            # bpy.ops.stablegen.refresh_controlnet_mappings('INVOKE_DEFAULT')
+            # Trigger full refresh here if desired on manual check success
+            bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
+            bpy.ops.stablegen.refresh_lora_list('INVOKE_DEFAULT')
+            bpy.ops.stablegen.refresh_controlnet_mappings('INVOKE_DEFAULT')
+            load_handler(None)
         else:
             self.report({'ERROR'}, f"ComfyUI server unreachable or timed out at {server_addr}.")
 
@@ -539,7 +540,7 @@ def update_model_list(self, context):
     global _cached_checkpoint_list
     # Basic check in case cache hasn't been populated correctly
     if not _cached_checkpoint_list:
-         return [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+         return [("NONE_AVAILABLE", "None available", "Fetch models from server")]
     return _cached_checkpoint_list
 
 def update_union(self, context):
@@ -675,7 +676,7 @@ def get_lora_models(self, context):
     global _cached_lora_list
     # Basic check
     if not _cached_lora_list:
-        return [("NONE_AVAILABLE", "Refresh List", "Fetch models from server")]
+        return [("NONE_AVAILABLE", "None available", "Fetch models from server")]
     return _cached_lora_list
 
 class RefreshCheckpointList(bpy.types.Operator):
@@ -985,7 +986,7 @@ class RemoveLoRAUnit(bpy.types.Operator):
         self.report({'WARNING'}, "No LoRA unit selected or list is empty.")
         return {'CANCELLED'}
 
-# load handler to set default ControlNet unit
+# load handler to set default ControlNet and LoRA units on first load
 @persistent
 def load_handler(dummy):
     if bpy.context.scene:
