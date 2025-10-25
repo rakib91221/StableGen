@@ -21,7 +21,7 @@ StableGen requires specific custom nodes for ComfyUI to function correctly, part
 3.  Clone the following repository:
     * **ComfyUI IPAdapter Plus:**
         ```bash
-        git clone [https://github.com/cubiq/ComfyUI_IPAdapter_plus.git](https://github.com/cubiq/ComfyUI_IPAdapter_plus.git)
+        git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git
         ```
 4.  **Restart ComfyUI** after installing new custom nodes to ensure they are loaded.
 
