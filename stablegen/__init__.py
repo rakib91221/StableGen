@@ -43,19 +43,19 @@ _cached_lora_list = [("NONE_AVAILABLE", "None available", "Fetch models from ser
 def update_combined(self, context):
     # This now primarily updates the preset status and might trigger Enum updates implicitly
     # Check if server is reachable
-    if not check_server_availability(self.server_address, timeout=0.5):
-        self.server_online = False
+    if not check_server_availability(context.preferences.addons[__package__].preferences.server_address, timeout=0.5):
+        context.preferences.addons[__package__].preferences.server_online = False
         print("ComfyUI server is not reachable.")
         return None
     else:
-        self.server_online = True
+        context.preferences.addons[__package__].preferences.server_online = True
 
     update_parameters(self, context)
     load_handler(None)
 
     # Automatically Refresh Lists on Server Change
     # Check if server address is valid before trying to refresh
-    if self.server_address:
+    if context.preferences.addons[__package__].preferences.server_address:
          print("Server address changed, attempting to refresh model lists...")
          def deferred_refresh():
              try:
@@ -700,7 +700,10 @@ class RefreshCheckpointList(bpy.types.Operator):
             model_list = fetch_from_comfyui_api(context, "/models/checkpoints")
             model_type_desc = "Checkpoint"
         else: # flux1
-            model_list = fetch_from_comfyui_api(context, "/models/unet")
+            model_list = fetch_from_comfyui_api(context, "/models/unet_gguf")
+            to_extend = fetch_from_comfyui_api(context, "/models/diffusion_models")
+            if to_extend:
+                model_list.extend(to_extend)
             model_type_desc = "UNET"
 
         if model_list is None: # Config error
@@ -1565,10 +1568,10 @@ def register():
         description="Select the model architecture to use for generation",
         items=[
             ('sdxl', 'SDXL', ''),
-            ('flux1', 'Flux 1 (beta support)', '')
+            ('flux1', 'Flux 1', '')
         ],
         default='sdxl',
-        update=update_parameters
+        update=update_combined
     )
     
     bpy.types.Scene.output_timestamp = bpy.props.StringProperty(
