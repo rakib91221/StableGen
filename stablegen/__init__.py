@@ -1042,6 +1042,10 @@ def register():
     def initial_refresh():
         print("StableGen: Performing initial model list refresh...")
         try:
+            bpy.ops.stablegen.check_server_status('INVOKE_DEFAULT')
+            if not bpy.context.preferences.addons.get(__package__).preferences.server_online:
+                print("StableGen: Server not reachable during initial refresh.")
+                return None
             # Check if server address is set before attempting
             prefs = bpy.context.preferences.addons.get(__package__)
             if prefs and prefs.preferences.server_address:
