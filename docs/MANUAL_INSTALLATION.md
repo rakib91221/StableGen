@@ -126,6 +126,13 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
     * **License:** FLUX-1-dev Non-Commercial License
     * **Size:** ~24 GB
 
+    You can also download a quantized version (GGUF format) instead for potentially improved performance:
+    * **Directory:** `<YourComfyUIDirectory>/models/unet/`
+    * **Filename:** `flux1-dev.gguf`
+    * **Download URL:** [https://huggingface.co/city96/FLUX.1-dev-gguf/tree/main](https://huggingface.co/city96/FLUX.1-dev-gguf/tree/main)
+    * **License:** FLUX-1-dev Non-Commercial License
+    * **Size:** ~5 to 12.7 GB (depending on quantization)
+
 * **b) FLUX CLIP Models (Required for FLUX.1-dev):**
     * **Directory:** `<YourComfyUIDirectory>/models/clip/`
     * **File 1:** `t5xxl_fp8_e4m3fn.safetensors` ([URL](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors?download=true))
@@ -133,15 +140,31 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
     * **License (for both CLIP models):** Apache 2.0
     * **Combined Size:** ~5.5 GB
 
-* **c) FLUX ControlNet (Union - Depth/Canny):**
-    * **Directory:** `<YourComfyUIDirectory>/models/controlnet/`
-    * **Target Filename:** `controlnet_flux1_union_pro.safetensors`
-    * **Download URL:** [https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors?download=true](https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors?download=true)
-    * **Action:** Download and **rename** to `controlnet_flux1_union_pro.safetensors`.
-    * **License:** FLUX-1-dev Non-Commercial License
-    * **Size:** ~6.5 GB
+* **c) FLUX VAE Model (Required for FLUX.1-dev):**
+    * **Directory:** `<YourComfyUIDirectory>/models/vae/`
+    * **Filename:** `ae.safetensors`
+    * **Target Filename:** `ae.sft` (Rename is necessary here!!)
+    * **Download URL:** [https://huggingface.co/black-forest-labs/FLUX.1-dev/](https://huggingface.co/black-forest-labs/FLUX.1-dev/)
+    * **License:** Apache 2.0
+    * **Size:** ~2.5 GB
+
+* **d) Guidance (ControlNet and/or FLUX.1-dev Depth LoRA):**
+    
+   *  FLUX ControlNet (Union - Depth/Canny):
+        * **Directory:** `<YourComfyUIDirectory>/models/controlnet/`
+        * **Target Filename:** `controlnet_flux1_union_pro.safetensors`
+        * **Download URL:** [https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors?download=true](https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors?download=true)
+        * **Action:** Download and **rename** to `controlnet_flux1_union_pro.safetensors`.
+        * **License:** FLUX-1-dev Non-Commercial License
+        * **Size:** ~6.5 GB
+    *  FLUX.1-dev Depth LoRA (alternative to ControlNet):
+        * **Directory:** `<YourComfyUIDirectory>/models/loras/`
+        * **Filename:** `flux1_depth_lora.safetensors`
+        * **Download URL:** [https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev-lora/](https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev-lora/)
+        * **License:** FLUX-1-dev Non-Commercial License
+        * **Size:** ~1.2 GB
  
-* **d) FLUX.1 IPAdapter Custom Node (Enables IPAdapter for FLUX)**
+* **e) FLUX.1 IPAdapter Custom Node (Enables IPAdapter for FLUX)**
     * **Note:** This is required to use IPAdapter with the FLUX.1 model.
     1.  Navigate to your ComfyUI custom nodes directory:
         ```bash
@@ -153,7 +176,7 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
         ```
     3.  **Restart ComfyUI** after installation.
 
-* **e) FLUX.1 IPAdapter Model**
+* **f) FLUX.1 IPAdapter Model**
     * **Directory:** `<YourComfyUIDirectory>/models/ipadapter-flux/`
     * **Filename:** `ip-adapter.bin`
     * **Download URL:** [https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin?download=true](https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin?download=true)
