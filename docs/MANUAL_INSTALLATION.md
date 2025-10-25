@@ -126,12 +126,24 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
     * **License:** FLUX-1-dev Non-Commercial License
     * **Size:** ~24 GB
 
-    You can also download a quantized version (GGUF format) instead for potentially improved performance:
+    **(Optional) You can also download a quantized version (GGUF format) instead for potentially improved performance:**
     * **Directory:** `<YourComfyUIDirectory>/models/unet/`
     * **Filename:** `flux1-dev.gguf`
     * **Download URL:** [https://huggingface.co/city96/FLUX.1-dev-gguf/tree/main](https://huggingface.co/city96/FLUX.1-dev-gguf/tree/main)
     * **License:** FLUX-1-dev Non-Commercial License
     * **Size:** ~5 to 12.7 GB (depending on quantization)
+
+    For GGUF (quantized) model support, you will also need to install the following custom node into ComfyUI:
+
+    1.  Navigate to your ComfyUI custom nodes directory:
+        ```bash
+        cd <YourComfyUIDirectory>/custom_nodes/
+        ```
+    2.  Clone the repository:
+        ```bash
+        git clone https://github.com/city96/ComfyUI-GGUF.git
+        ```
+
 
 * **b) FLUX CLIP Models (Required for FLUX.1-dev):**
     * **Directory:** `<YourComfyUIDirectory>/models/clip/`
@@ -172,7 +184,7 @@ FLUX.1 is a newer diffusion architecture and its usage in StableGen is optional.
         ```
     2.  Clone the repository:
         ```bash
-        git clone [https://github.com/Shakker-Labs/ComfyUI-IPAdapter-Flux.git](https://github.com/Shakker-Labs/ComfyUI-IPAdapter-Flux.git)
+        git clone https://github.com/Shakker-Labs/ComfyUI-IPAdapter-Flux.git
         ```
     3.  **Restart ComfyUI** after installation.
 
