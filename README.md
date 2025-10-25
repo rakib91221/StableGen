@@ -126,11 +126,12 @@ Setting up StableGen involves installing ComfyUI, then StableGen's dependencies 
 
 ### Step 1: Install ComfyUI (If not already installed)
 
-StableGen relies on a working ComfyUI installation as its backend.
+StableGen relies on a working ComfyUI installation as its backend. This can be done on a separate machine if desired. 
+
+*If you wish to use a separate machine for the backend, do step 1 and 2 there.*
 1.  If you don't have ComfyUI, please follow the **official ComfyUI installation guide**: [https://github.com/comfyanonymous/ComfyUI#installing](https://github.com/comfyanonymous/ComfyUI#installing).
     * Install ComfyUI in a dedicated directory. We'll refer to this as `<YourComfyUIDirectory>`.
     * Ensure you can run ComfyUI and it's functioning correctly before proceeding.
-    * Remote ComfyUI instances are not currently supported. This includes ComfyUI installations running on a different machine or in a virtual machine (including WSL).
 
 ### Step 2: Install Dependencies (Custom Nodes & AI Models) - Automated (Recommended)
 
@@ -175,14 +176,10 @@ The `installer.py` script (found in this repository) automates the download and 
 1.  In Blender, go to `Edit > Preferences > Add-ons`.
 2.  Find "StableGen" and expand its preferences.
 3.  Set the following paths:
-    * **ComfyUI Directory:** Path to your ComfyUI installation (e.g., `<YourComfyUIDirectory>`).
     * **Output Directory:** Choose a folder where StableGen will save generated images.
     * **Server Address:** Ensure this matches your ComfyUI server (default `127.0.0.1:8188`).
     * Review **ControlNet Mapping** if using custom named ControlNet models.
-    * **External Checkpoints / LoRAs Directory (Optional):** Path to your external checkpoint directory. Also has to be configured in ComfyUI.
 4.  Enable online access in Blender if not enabled already. Select `Edit -> Preferences` from the topbar of Blender. Then navigate to `System -> Network` and check the box `Enable Online Access`. While StableGen does not require internet access, this is added to respect Blender add-on guidelines, as there are still network calls being made locally.
-
-***Note for Docker users:** When setting up your ComfyUI Docker container, be sure to include the absolute path to this output directory in your volumes. i.e. if your StableGen output path is `/home/user/stablegen_output`, your container volume mapping should include `/home/user/stablegen_output:/home/user/stablegen_output`.*
 
 ---
 
@@ -380,7 +377,8 @@ Here are some features we plan to implement in the future (in no particular orde
 * **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
 * **SD 3.5 Support:** Support for the Stable Diffusion 3.5 architecture.
-* **Remote ComfyUI Support:** Allow connecting to remote ComfyUI servers, enabling distributed processing.
+* **Automatic camera placement improvements:** More advanced camera placement algorithms (e.g., based on model geometry).
+* **Mesh generation:** Integration of mesh generation capabilities.
 
 If you have any suggestions, please feel free to open an issue!
 
@@ -393,4 +391,4 @@ Ondřej Sakala
 * X/Twitter: `@sakalond`
 
 ---
-*Last Updated: July 10, 2025*
+*Last Updated: October 25, 2025*
