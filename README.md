@@ -342,7 +342,8 @@ StableGen is released under the **GNU General Public License v3.0**. See the `LI
 
 StableGen builds upon the fantastic work of many individuals and communities. Our sincere thanks go to:
 
-* **Academic Roots:** This plugin originated as a Bachelor's Thesis by Ondřej Sakala at the Czech Technical University in Prague (Faculty of Information Technology), supervised by Ing. Radek Richtr, Ph.D.
+* **Academic Roots:** This plugin originated as a Bachelor's Thesis by Ondřej Sakala at the Czech Technical University in Prague (Faculty of Information Technology), supervised by Ing. Radek Richtr, Ph.D. 
+    * Full thesis available at: [https://dspace.cvut.cz/handle/10467/123567](https://dspace.cvut.cz/handle/10467/123567)
 * **Core Technologies & Communities:**
     * **ComfyUI** by ComfyAnonymous ([GitHub](https://github.com/comfyanonymous/ComfyUI)) for the powerful and flexible backend.
     * The **Blender Foundation** and its community for the amazing open-source 3D creation suite.
