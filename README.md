@@ -298,7 +298,7 @@ StableGen organizes the generated files within the `Output Directory` specified 
 Encountering issues? Here are some common fixes. Always check the **Blender System Console** (Window > Toggle System Console) AND the **ComfyUI server console** for error messages.
 
 * **StableGen Panel Not Showing:** Ensure the addon is installed and enabled in Blender's preferences.
-* **"Cannot generate..." on Generate Button:** Check Addon Preferences: `Model Directory`, `Output Directory`, and `Server Address` must be correctly set.
+* **"Cannot generate..." on Generate Button:** Check Addon Preferences: `Output Directory` and `Server Address` must be correctly set. The server also has to be reachable.
 * **Connection Issues with ComfyUI:**
     * Make sure your ComfyUI server is running.
     * Verify the `Server Address` in StableGen preferences.
