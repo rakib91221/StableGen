@@ -171,7 +171,7 @@ class Reproject(bpy.types.Operator):
             if mat_id > max_id:
                 max_id = mat_id
 
-        cameras = [obj for obj in bpy.context.view_layer.objects if obj.type == 'CAMERA']
+        cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
         for i, _ in enumerate(cameras):
             # Check if the camera has a corresponding generated image
             image_path = get_file_path(context, "generated", camera_id=i, material_id=max_id)
@@ -431,7 +431,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             ComfyUIGenerate._is_running = False
             return {'CANCELLED'}
         
-        self._cameras = [obj for obj in bpy.context.view_layer.objects if obj.type == 'CAMERA']
+        self._cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
         if not self._cameras:
             self.report({'ERROR'}, "No cameras found in the scene.")
             context.scene.generation_status = 'idle'
@@ -489,11 +489,18 @@ class ComfyUIGenerate(bpy.types.Operator):
                         context.scene.generation_status = 'idle'
                         ComfyUIGenerate._is_running = False
                         return {'CANCELLED'}
-                else:
-                    # Make a set to count unique uv maps
+                else: # Overwrite material is enabled
                     uv_maps = set()
                     mesh = obj.data
                     uv_maps = [uv_layer.name for uv_layer in mesh.uv_layers]
+                    usable_maps = 0
+                    if self._material_id == -1:
+                        self._material_id = 0
+                    # Count only stablegen UV maps
+                    for uv_map in uv_maps:
+                        for i in range(uv_slots_needed):
+                            if uv_map == f"ProjectionUV_{i}_{self._material_id}":
+                                usable_maps += 1
                     if len(uv_maps) == 1:
                         # Probably a baked texture, check if there is enough uv slots
                         if 8 - len(obj.data.uv_layers) - 1 < uv_slots_needed:
@@ -501,14 +508,14 @@ class ComfyUIGenerate(bpy.types.Operator):
                             context.scene.generation_status = 'idle'
                             ComfyUIGenerate._is_running = False
                             return {'CANCELLED'}
-                    elif 8 - len(obj.data.uv_layers) + len(uv_maps) < uv_slots_needed:
-                            print(f"8 - {len(obj.data.uv_layers)} + {len(uv_maps)} < {uv_slots_needed}")
+                    elif 8 - len(obj.data.uv_layers) + usable_maps < uv_slots_needed:
+                            print(f"8 - {len(obj.data.uv_layers)} + {usable_maps} < {uv_slots_needed}")
                             self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
                             context.scene.generation_status = 'idle'
                             ComfyUIGenerate._is_running = False
                             return {'CANCELLED'}
                         
-            else:
+            else: # Baking
                 if 8 - len(obj.data.uv_layers) < 1:
                     self.report({'ERROR'}, "Not enough UV map slots for baking. At least 1 slot is required.")
 
@@ -1233,8 +1240,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         
         # Set IPAdapter image source
-        if ipadapter_ref_info:
-            prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
 
         # Connect ipadapter image to the input
         prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
@@ -1769,17 +1775,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         else:
             prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         
-        if ipadapter_ref_info:
-            prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
-        elif context.scene.use_ipadapter:
-             # Set IPAdapter image source based on ipadapter_image
-            image_path = bpy.path.abspath(context.scene.ipadapter_image)
-            prompt[NODES['ipadapter_image']]["inputs"]["image"] = image_path
-        else: # Mode-specific IPAdapter
-            if context.scene.sequential_ipadapter_mode == 'first':
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=0, material_id=self._material_id)
-            else:
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=self._current_image - 1, material_id=self._material_id)
+        # Set IPAdapter image source
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
         
         
         # Connect ipadapter image to the input
@@ -2173,7 +2170,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Flux does not use negative prompt or LoRA.
         return prompt, NODES
     
-    def configure_ipadapter_flux(self, prompt, context, NODES):
+    def configure_ipadapter_flux(self, prompt, context, ipadapter_ref_info, NODES):
         # Configure IPAdapter if enabled
         from .util.helpers import ipadapter_flux
         ipadapter_dict = json.loads(ipadapter_flux)
@@ -2188,15 +2185,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         prompt[NODES['guider']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
         
-        # Set IPAdapter image source based on ipadapter_image
-        if context.scene.use_ipadapter:
-            image_path = bpy.path.abspath(context.scene.ipadapter_image)
-            prompt[NODES['ipadapter_image']]["inputs"]["image"] = image_path
-        elif context.scene.sequential_ipadapter:
-            if context.scene.sequential_ipadapter_mode == 'first':
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=0, material_id=self._material_id)
-            else:
-                prompt[NODES['ipadapter_image']]["inputs"]["image"] = get_file_path(context, "generated", camera_id=self._current_image - 1, material_id=self._material_id)
+        # Set IPAdapter image source
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
 
         # Connect ipadapter image to the input
         prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
@@ -2225,7 +2215,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         self._configure_resolution(prompt, context, NODES)
         
         # Configure IPAdapter for Flux if enabled
-        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self._current_image > 0):
+        if ipadapter_ref_info:
             self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
 
         # Build ControlNet chain if not using Depth LoRA
@@ -2421,7 +2411,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
         
         # Configure based on generation method
-        self._configure_refinement_mode_flux(prompt, context, render_info, mask_info, NODES)
+        self._configure_refinement_mode_flux(prompt, context, render_info, mask_info, ipadapter_ref_info, NODES)
         
         # Set up image inputs for different controlnet types
         self._refine_configure_images_flux(prompt, render_info, NODES)
@@ -2454,7 +2444,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 # prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['instruct_pix'], 2] # Not doing since we need to respect the mask
 
                 # If using ipadapter, set the apply_ipadapter_flux node to use the flux_lora_image
-                if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
+                if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
                     prompt[NODES['ipadapter']]["inputs"]["model"] = [NODES['flux_lora'], 0]
                     prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
                 else:
@@ -2496,7 +2486,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Return the refined image
         return images[NODES['save_image']][0]
 
-    def _configure_refinement_mode_flux(self, prompt, context, render_info, mask_info, NODES):
+    def _configure_refinement_mode_flux(self, prompt, context, render_info, mask_info, ipadapter_ref_info, NODES):
         """Configures the prompt based on the specific refinement mode for Flux."""
         # Configure based on generation method
         if context.scene.generation_method == 'refine':
@@ -2531,7 +2521,10 @@ class ComfyUIGenerate(bpy.types.Operator):
                 prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['differential_diffusion'], 0]
                 
                 # Connect inpaint conditioning to differential diffusion
-                prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['unet_loader'], 0]
+                if ipadapter_ref_info:
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+                else:
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['unet_loader'], 0]
                 
                 # Configure inpaint conditioning with proper input image and mask
                 prompt[NODES['inpaint_conditioning']]["inputs"]["pixels"] = [
@@ -2592,7 +2585,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         # Control images are handled by the controlnet chain builder
 
-    def _refine_build_controlnet_chain_flux(self, prompt, context, controlnet_info, NODES):
+    def _refine_build_controlnet_chain_flux(self, context, prompt, controlnet_info, NODES):
         """Builds the ControlNet chain for refinement process with Flux."""
         input = NODES['pos_prompt'] if not context.scene.differential_diffusion else NODES['inpaint_conditioning']
         # For Flux, the controlnet chain connects to the guidance node
