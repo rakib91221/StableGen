@@ -280,7 +280,7 @@ def export_render(context, camera_id=None):
     # Store original materials and create temporary ones
     original_materials = {}
     original_active_material = {}
-    for obj in context.scene.objects:
+    for obj in context.view_layer.objects:
         if obj.type == 'MESH':
             # Store original materials
             original_materials[obj] = list(obj.data.materials)
@@ -1332,7 +1332,7 @@ class BakeTextures(bpy.types.Operator):
         :return: {'RUNNING_MODAL'}     
         """
         if context.scene.texture_objects == 'all':
-            self._objects = [obj for obj in context.scene.objects if obj.type == 'MESH']
+            self._objects = [obj for obj in context.view_layer.objects if obj.type == 'MESH' and not obj.hide_get()]
         else: # 'selected'
             self._objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
         self._current_index = 0

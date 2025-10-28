@@ -160,7 +160,7 @@ class Reproject(bpy.types.Operator):
         :return: {'FINISHED'}     
         """
         if context.scene.texture_objects == 'all':
-            to_texture = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+            to_texture = [obj for obj in bpy.context.view.objects if obj.type == 'MESH' and not obj.hide_get()]
         else: # selected
             to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
 
@@ -171,7 +171,7 @@ class Reproject(bpy.types.Operator):
             if mat_id > max_id:
                 max_id = mat_id
 
-        cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
+        cameras = [obj for obj in bpy.context.view_layer.objects if obj.type == 'CAMERA']
         for i, _ in enumerate(cameras):
             # Check if the camera has a corresponding generated image
             image_path = get_file_path(context, "generated", camera_id=i, material_id=max_id)
@@ -431,7 +431,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             ComfyUIGenerate._is_running = False
             return {'CANCELLED'}
         
-        self._cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
+        self._cameras = [obj for obj in bpy.context.view_layer.objects if obj.type == 'CAMERA']
         if not self._cameras:
             self.report({'ERROR'}, "No cameras found in the scene.")
             context.scene.generation_status = 'idle'
@@ -452,7 +452,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             return {'CANCELLED'}
         
         # If there are curves within the scene, warn the user
-        if any(obj.type == 'CURVE' for obj in bpy.context.scene.objects):
+        if any(obj.type == 'CURVE' for obj in bpy.context.view_layer.objects):
             self.report({'WARNING'}, "Curves detected in the scene. This may cause issues with the generation process. Consider removing them before proceeding.")
         
         if context.scene.generation_mode == 'project_only':
@@ -473,7 +473,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 ComfyUIGenerate._is_running = False
                 return {'CANCELLED'}
         else: # all
-            self._to_texture = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+            self._to_texture = [obj for obj in bpy.context.view_layer.objects if obj.type == 'MESH' and not obj.hide_get()]
 
         # Find all mesh objects, check their material ids and store the highest one
         for obj in self._to_texture:
@@ -578,7 +578,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         self._original_visibility = {}
         if context.scene.texture_objects == 'selected':
             # Hide unselected objects for rendering
-            for obj in bpy.context.scene.objects:
+            for obj in bpy.context.view_layer.objects:
                 if obj.type == 'MESH' and obj not in self._to_texture:
                     # Save original visibility
                     self._original_visibility[obj.name] = obj.hide_render
@@ -695,7 +695,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                 ComfyUIGenerate._is_running = False
                 # Restore original visibility for non-selected objects
                 if context.scene.texture_objects == 'selected':
-                    for obj in bpy.context.scene.objects:
+                    for obj in bpy.context.view_layer.objects:
                         if obj.type == 'MESH' and obj.name in self._original_visibility:
                             obj.hide_render = self._original_visibility[obj.name]
                 if self._error:
@@ -2105,7 +2105,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             # Reset object prompts on every run
             self.show_prompt_dialog = True
             self._object_prompts = {}
-            self._to_texture = [obj.name for obj in bpy.context.scene.objects if obj.type == 'MESH']
+            self._to_texture = [obj.name for obj in bpy.context.view_layer.objects if obj.type == 'MESH']
             if context.scene.texture_objects == 'selected':
                 self._to_texture = [obj.name for obj in bpy.context.selected_objects if obj.type == 'MESH']
             self.mesh_index = 0
