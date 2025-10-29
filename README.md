@@ -124,12 +124,17 @@ StableGen acts as an intuitive interface within Blender that communicates with a
 
 Setting up StableGen involves installing ComfyUI, then StableGen's dependencies into ComfyUI using our installer script, and finally installing the StableGen plugin in Blender.
 
+Follow the step‑by‑step instructions below to install StableGen.
+
+If you’d rather watch, Polynox provides a concise video walkthrough:  
+[StableGen Installation & Basic Usage Video Tutorial](https://www.youtube.com/watch?v=EVNYAMnn_oQ)
+
 ### Step 1: Install ComfyUI (If not already installed)
 
 StableGen relies on a working ComfyUI installation as its backend. This can be done on a separate machine if desired. 
 
 *If you wish to use a separate machine for the backend, do step 1 and 2 there.*
-1.  If you don't have ComfyUI, please follow the **official ComfyUI installation guide**: [https://github.com/comfyanonymous/ComfyUI#installing](https://github.com/comfyanonymous/ComfyUI#installing).
+* If you don't have ComfyUI, please follow the **official ComfyUI installation guide**: [https://github.com/comfyanonymous/ComfyUI#installing](https://github.com/comfyanonymous/ComfyUI#installing).
     * Install ComfyUI in a dedicated directory. We'll refer to this as `<YourComfyUIDirectory>`.
     * Ensure you can run ComfyUI and it's functioning correctly before proceeding.
 
