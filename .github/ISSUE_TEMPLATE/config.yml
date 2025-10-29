@@ -1,0 +1,11 @@
+# This prevents users from creating a blank, empty issue.
+blank_issues_enabled: false
+
+contact_links:
+  - name: 💬 Ask a Question
+    url: https://github.com/sakalond/StableGen/discussions/new?category=q-a
+    about: This is the best place for questions, "how-to" help, and general support.
+
+  - name: 💡 Suggest an Idea
+    url: https://github.com/sakalond/StableGen/discussions/new?category=ideas
+    about: Have a new feature idea? Let's discuss it here first.
