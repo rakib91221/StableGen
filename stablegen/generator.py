@@ -316,7 +316,6 @@ class ComfyUIGenerate(bpy.types.Operator):
     _material_id = -1
     _to_texture = None
     _original_visibility = None
-    proceed_with_high_res: bpy.props.BoolProperty(default=False)
     _uploaded_images_cache: dict = {}
 
     # Add properties to track progress
@@ -422,14 +421,9 @@ class ComfyUIGenerate(bpy.types.Operator):
             render.resolution_x -= render.resolution_x % 8
             render.resolution_y -= render.resolution_y % 8
             self.report({'INFO'}, f"Resolution automatically rescaled to {render.resolution_x}x{render.resolution_y}.")
-            self.proceed_with_high_res = True  # Automatically proceed after rescale
 
-        elif total_pixels > 1_200_000 and not self.proceed_with_high_res:  # 1MP + 20%
-            self.proceed_with_high_res = True  # Set to true to avoid repeated pop-ups
-            self.report({'WARNING'}, "High resolution detected. Resolutions above 1MP may reduce performance and quality. To proceed, run the operator again.")
-            context.scene.generation_status = 'idle'
-            ComfyUIGenerate._is_running = False
-            return {'CANCELLED'}
+        elif total_pixels > 1_200_000:  # 1MP + 20%
+            self.report({'WARNING'}, "High resolution detected. Resolutions above 1MP may reduce performance and quality.")
         
         self._cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
         if not self._cameras:
