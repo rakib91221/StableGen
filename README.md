@@ -382,7 +382,8 @@ The open spirit of the AI and open-source communities is what makes projects lik
 Here are some features we plan to implement in the future (in no particular order):
 * **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
-* **SD 3.5 Support:** Support for the Stable Diffusion 3.5 architecture.
+* **Custom VAE, CLIP model selection:** Ability to select custom VAE and CLIP models in addition to custom ControlNet and LoRA models.
+* **Qwen-Image-Edit integration:** Qwen-Image-Edit show potential for generating higher quality textures with better prompt adherence. We plan to add support for it as an alternative to SDXL/Flux.1-dev.
 * **Automatic camera placement improvements:** More advanced camera placement algorithms (e.g., based on model geometry).
 * **Mesh generation:** Integration of mesh generation capabilities.
 
@@ -397,4 +398,4 @@ Ondřej Sakala
 * X/Twitter: `@sakalond`
 
 ---
-*Last Updated: October 25, 2025*
+*Last Updated: October 30, 2025*
