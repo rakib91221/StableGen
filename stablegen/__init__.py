@@ -8,6 +8,7 @@ import os
 import requests
 import json
 from bpy.app.handlers import persistent
+from urllib.parse import urlparse
 
 bl_info = {
     "name": "StableGen",
@@ -42,6 +43,25 @@ _cached_lora_list = [("NONE_AVAILABLE", "None available", "Fetch models from ser
 
 def update_combined(self, context):
     # This now primarily updates the preset status and might trigger Enum updates implicitly
+    prefs = context.preferences.addons[__package__].preferences
+    raw_address = prefs.server_address
+
+    if raw_address:
+        # Ensure we have a scheme for correct parsing
+        if not raw_address.startswith(('http://', 'https://')):
+            # Prepend http scheme if it's missing
+            parsed_url = urlparse(f"http://{raw_address}")
+        else:
+            parsed_url = urlparse(raw_address)
+        
+        clean_address = parsed_url.netloc
+
+        # If parsing resulted in a change, update the property.
+        # This will re-trigger the update function, so we return early.
+        if clean_address and raw_address != clean_address:
+            prefs.server_address = clean_address
+            return None
+
     # Check if server is reachable
     if not check_server_availability(context.preferences.addons[__package__].preferences.server_address, timeout=0.5):
         context.preferences.addons[__package__].preferences.server_online = False
