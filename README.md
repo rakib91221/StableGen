@@ -2,10 +2,33 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Blender Version](https://img.shields.io/badge/Blender-4.2%2B-orange.svg)](#system-requirements)
+[![GitHub All Releases](https://img.shields.io/github/downloads/sakalond/stablegen/total?color=brightgreen&label=Downloads)](https://github.com/sakalond/stablegen/releases)
 
 **Transform your 3D texturing workflow with the power of generative AI, directly within Blender!**
 
 StableGen is an open-source Blender plugin designed to seamlessly integrate advanced diffusion models (SDXL, FLUX.1-dev) into your creative process. Generate complex, coherent, and controllable textures for your 3D models and entire scenes using a flexible ComfyUI backend.
+
+---
+
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [🌟 Key Features](#-key-features)
+- [🚀 Showcase Gallery](#-showcase-gallery)
+- [🛠️ How It Works](#️-how-it-works-a-glimpse)
+- [💻 System Requirements](#-system-requirements)
+- [⚙️ Installation](#️-installation)
+- [🚀 Quick Start Guide](#-quick-start-guide)
+- [📖 Usage & Parameters Overview](#-usage--parameters-overview)
+- [📁 Output Directory Structure](#-output-directory-structure)
+- [🤔 Troubleshooting](#-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
+- [🙏 Acknowledgements](#-acknowledgements)
+- [💡 List of planned features](#-list-of-planned-features)
+- [📧 Contact](#-contact)
+
+</details>
 
 ---
 
@@ -398,4 +421,4 @@ Ondřej Sakala
 * X/Twitter: `@sakalond`
 
 ---
-*Last Updated: October 30, 2025*
+*Last Updated: October 31, 2025*
