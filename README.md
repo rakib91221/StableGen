@@ -226,7 +226,7 @@ Here’s how to get your first texture generated with StableGen:
 5.  **Set Basic Parameters:**
     * **Prompt:** Type a description (e.g., "ancient stone wall with moss").
     * **Checkpoint:** Select a checkpoint (e.g., `sdxl_base_1.0`).
-    * **Generation Mode:** `Sequential` is a good starting point for consistency.
+    * **Preset:** Choose a preset and apply it. `Default` or `Characters` are good starting points.
 6.  **Hit Generate!** Click the main "**Generate**" button.
 7.  **Observe:** Watch the progress in the panel and the ComfyUI console. Your object should update with the new texture! Output files will be in your specified "Output Directory".
     * By default, the generated texture will only be visible in the Rendered viewport shading mode (CYCLES Render Engine).
