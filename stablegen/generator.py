@@ -411,6 +411,9 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         print("Executing ComfyUI Generation")
 
+        if context.scene.model_architecture == 'qwen_image_edit':
+            context.scene.generation_method = 'sequential' # Force sequential for Qwen Image Edit
+
         render = bpy.context.scene.render
         resolution_x = render.resolution_x
         resolution_y = render.resolution_y

@@ -19,6 +19,36 @@ class WorkflowManager:
         """
         self.operator = operator
 
+    def _get_qwen_default_prompts(self, context, is_initial_image):
+        """Gets the default Qwen prompts based on the current context."""
+        # Check if we are in a real generation context vs. just resetting a prompt
+        is_generating = hasattr(self.operator, '_current_image')
+        is_subsequent_in_sequence = is_generating and self.operator._current_image > 0
+
+        style_image_provided = (
+            context.scene.qwen_use_external_style_image or
+            ((not is_generating or is_subsequent_in_sequence) and
+             (context.scene.sequential_ipadapter or context.scene.qwen_context_render_mode == 'REPLACE_STYLE'))
+        )
+        context_mode = context.scene.qwen_context_render_mode
+
+        if is_initial_image:
+            if not style_image_provided:
+                return "Change the format of image 1 to '{main_prompt}'"
+            else:
+                return "Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2"
+        else: # Subsequent image
+            if context_mode == 'ADDITIONAL':
+                return "Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object."
+            elif context_mode == 'REPLACE_STYLE':
+                return "Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas."
+            else: # NONE or other cases
+                if not style_image_provided:
+                     return "Change the format of image 1 to '{main_prompt}'"
+                else:
+                    return "Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2"
+
+
     def generate_qwen_edit(self, context, camera_id=None):
         """Generates an image using the Qwen-Image-Edit workflow."""
         server_address = context.preferences.addons[__package__].preferences.server_address
@@ -30,13 +60,33 @@ class WorkflowManager:
         NODES = {
             'sampler': "1",
             'save_image': "5",
+            'model_sampler': "6", # ModelSamplingAuraFlow
+            'cfg_norm': "7", # CFGNorm
             'vae_encode': "8",
             'pos_prompt': "12",
             'neg_prompt': "11",
+            'unet_loader': "13",
             'guidance_map_loader': "14", # Image 1 (structure)
             'style_map_loader': "15",   # Image 2 (style)
             'context_render_loader': "16", # Image 3 (context render)
         }
+
+        # --- Build LoRA chain ---
+        # The Qwen workflow uses model-only LoRAs. We can reuse the existing
+        # chain builder by providing a dummy CLIP input that won't be used.
+        initial_model_input = [NODES['unet_loader'], 0]
+        dummy_clip_input = [NODES['unet_loader'], 0] # Dummy, not used by LoraLoaderModelOnly
+
+        prompt, final_lora_model_out, _ = self._build_lora_chain(
+            prompt, context,
+            initial_model_input, dummy_clip_input,
+            start_node_id=500, # Use a high starting ID to avoid conflicts
+            lora_class_type="LoraLoaderModelOnly" # Specify model-only loader
+        )
+
+        # Connect the output of the LoRA chain to the next node in the model path
+        prompt[NODES['model_sampler']]['inputs']['model'] = final_lora_model_out
+
 
         # --- Configure Inputs ---
         guidance_map_type = context.scene.qwen_guidance_map_type
@@ -54,7 +104,7 @@ class WorkflowManager:
         remove_context = False
 
         # --- Camera Prompt Injection ---
-        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+        if context.scene.use_camera_prompts and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
             current_camera_name = self.operator._cameras[self.operator._current_image].name
             # Find the prompt in the collection
             prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
@@ -65,7 +115,8 @@ class WorkflowManager:
 
         # --- Handle Context Render (Image 3) ---
         # This is only active in sequential mode after the first image
-        if context.scene.generation_method == 'sequential' and self.operator._current_image > 0 and context_mode != 'NONE':
+        is_initial_image = not self.operator._current_image > 0
+        if not is_initial_image and context_mode != 'NONE':
             context_render_info = self.operator._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=camera_id)
             if not context_render_info:
                 self.operator._error = f"Qwen context render enabled, but could not find context render for camera {camera_id}."
@@ -76,8 +127,11 @@ class WorkflowManager:
                 NODES['context_render_loader'], NODES['style_map_loader'] = NODES['style_map_loader'], NODES['context_render_loader']
                 prompt[NODES['context_render_loader']]['inputs']['image'] = context_render_info['name']
                 # The prompt needs to reference image 3
-                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object."
-                # prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of {user_prompt} in image 1 to the style from image 2. Image 3 contains the unfinished image, where the magenta areas need to be replaced and completed."
+                if context.scene.qwen_use_custom_prompts:
+                    pos_prompt_text = context.scene.qwen_custom_prompt_seq_additional.format(main_prompt=user_prompt)
+                else:
+                    pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
             # If mode is REPLACE_STYLE, we will handle it in the style image section below.
             else:
                 remove_context = True
@@ -91,21 +145,36 @@ class WorkflowManager:
 
 
         # --- Handle Style Image (Image 2) ---
-        # Case 1: External Style Image for all viewpoints
-        if context.scene.qwen_use_external_style_image:
+        # Determine if we should use the external style image for this specific frame
+        use_external_this_frame = context.scene.qwen_use_external_style_image
+        if use_external_this_frame and not is_initial_image and context.scene.qwen_external_style_initial_only:
+            # If it's a subsequent image AND the "initial only" flag is set, DON'T use the external image.
+            use_external_this_frame = False
+            context.scene.sequential_ipadapter = True # Force using previous image as style
+
+        # Case 1: External Style Image for this frame
+        if use_external_this_frame:
             style_image_info = self.operator._get_uploaded_image_info(context, "custom", filename=bpy.path.abspath(context.scene.qwen_external_style_image))
             if not style_image_info:
                 self.operator._error = "External style image enabled, but file not found or could not be uploaded."
                 return {"error": "conn_failed"}
             if context_mode != 'ADDITIONAL':
-                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+                if context.scene.qwen_use_custom_prompts:
+                    pos_prompt_text = (context.scene.qwen_custom_prompt_initial if is_initial_image else context.scene.qwen_custom_prompt_seq_none).format(main_prompt=user_prompt)
+                else:
+                    pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
 
         # Case 2: Sequential generation (after first image)
-        elif context.scene.generation_method == 'sequential' and self.operator._current_image > 0:
+        elif not is_initial_image:
             if context_mode == 'REPLACE_STYLE':
                 # The context render becomes the style image
                 style_image_info = context_render_info
-                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas."
+                if context.scene.qwen_use_custom_prompts:
+                    pos_prompt_text = context.scene.qwen_custom_prompt_seq_replace.format(main_prompt=user_prompt)
+                else:
+                    pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
             elif context.scene.sequential_ipadapter: # Use previous generated image
                 ref_cam_id = 0 if context.scene.sequential_ipadapter_mode == 'first' else self.operator._current_image - 1
                 style_image_info = self.operator._get_uploaded_image_info(context, "generated", camera_id=ref_cam_id, material_id=self.operator._material_id)
@@ -113,7 +182,11 @@ class WorkflowManager:
                     self.operator._error = f"Sequential mode error: Could not find previous image for camera {ref_cam_id} to use as style."
                     return {"error": "conn_failed"}
                 if context_mode != 'ADDITIONAL':
-                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+                    if context.scene.qwen_use_custom_prompts:
+                        pos_prompt_text = context.scene.qwen_custom_prompt_seq_none.format(main_prompt=user_prompt)
+                    else:
+                        pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
             # If neither of the above, style_image_info remains None, handled below
 
         # Case 3: First image of a sequence, or separate generation, or no style source in sequential
@@ -122,7 +195,11 @@ class WorkflowManager:
             del prompt[NODES['style_map_loader']]
             del prompt[NODES['pos_prompt']]['inputs']['image2']
             del prompt[NODES['neg_prompt']]['inputs']['image2']
-            prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change the format of image 1 to '{user_prompt}'"
+            if context.scene.qwen_use_custom_prompts:
+                pos_prompt_text = (context.scene.qwen_custom_prompt_initial if is_initial_image else context.scene.qwen_custom_prompt_seq_none).format(main_prompt=user_prompt)
+            else:
+                pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+            prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
         else:
             # A style image is provided, so set the loader input.
             prompt[NODES['style_map_loader']]['inputs']['image'] = style_image_info['name']
@@ -134,6 +211,9 @@ class WorkflowManager:
         prompt[NODES['sampler']]['inputs']['sampler_name'] = context.scene.sampler
         prompt[NODES['sampler']]['inputs']['scheduler'] = context.scene.scheduler
         prompt[NODES['sampler']]['inputs']['denoise'] = 1.0 # Typically 1.0 for this kind of edit
+
+        # --- Set UNET model ---
+        prompt[NODES['unet_loader']]['inputs']['unet_name'] = context.scene.model_name
 
         # --- Execute ---
         self._save_prompt_to_file(prompt, revision_dir)
@@ -434,7 +514,7 @@ class WorkflowManager:
 
         return base_prompt, current_pos
 
-    def _build_lora_chain(self, prompt, context, initial_model_input, initial_clip_input, start_node_id=300):
+    def _build_lora_chain(self, prompt, context, initial_model_input, initial_clip_input, start_node_id=300, lora_class_type="LoraLoader"):
         """
         Builds a chain of LoRA loaders dynamically.
 
@@ -444,6 +524,7 @@ class WorkflowManager:
             initial_model_input (list): The [node_id, output_idx] for the initial model.
             initial_clip_input (list): The [node_id, output_idx] for the initial CLIP.
             start_node_id (int): The starting integer for generating unique LoRA node IDs.
+            lora_class_type (str): The class type of the LoRA loader node to use.
 
         Returns:
             tuple: (modified_prompt, final_model_output, final_clip_output)
@@ -464,22 +545,27 @@ class WorkflowManager:
 
             lora_node_id_str = str(start_node_id + i)
             
+            lora_inputs = {
+                "lora_name": lora_unit.model_name,
+                "strength_model": lora_unit.model_strength,
+                "model": current_model_out,
+            }
+
+            if lora_class_type == "LoraLoader":
+                lora_inputs["strength_clip"] = lora_unit.clip_strength
+                lora_inputs["clip"] = current_clip_out
+
             prompt[lora_node_id_str] = {
-                "inputs": {
-                    "lora_name": lora_unit.model_name,
-                    "strength_model": lora_unit.model_strength,
-                    "strength_clip": lora_unit.clip_strength,
-                    "model": current_model_out, # Connect to previous LoRA or initial model
-                    "clip": current_clip_out    # Connect to previous LoRA or initial CLIP
-                },
-                "class_type": "LoraLoader",
+                "inputs": lora_inputs,
+                "class_type": lora_class_type,
                 "_meta": {
                     "title": f"Load LoRA {i+1} ({lora_unit.model_name[:20]})"
                 }
             }
             # Update outputs for the next LoRA in the chain
             current_model_out = [lora_node_id_str, 0]
-            current_clip_out = [lora_node_id_str, 1]
+            if lora_class_type == "LoraLoader":
+                current_clip_out = [lora_node_id_str, 1]
             
         return prompt, current_model_out, current_clip_out
 
@@ -838,7 +924,7 @@ class WorkflowManager:
             current_object_name = os.path.basename(render_info['name']).split('.')[0]
         
         # Use the object-specific prompt if available
-        object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
+        object_prompt = self.operator._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
         if object_prompt:
             uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching, PBR material properties"
             uv_prompt_neg = f"seam, stitch, visible edge, texture stretching, repeating pattern, {context.scene.comfyui_negative_prompt}"
@@ -1357,7 +1443,7 @@ class WorkflowManager:
         # Object-specific prompt if available
         if render_info and 'name' in render_info:
             current_object_name = os.path.basename(render_info['name']).split('.')[0]
-            object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
+            object_prompt = self.operator._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
             if object_prompt:
                 uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching"
                 prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt

@@ -1404,20 +1404,6 @@ prompt_text_qwen_image_edit = """
       "title": "VAE Encode"
     }
   },
-  "9": {
-    "inputs": {
-      "lora_name": "Qwen-Image-Lightning-4steps-V1.0.safetensors",
-      "strength_model": 1,
-      "model": [
-        "13",
-        0
-      ]
-    },
-    "class_type": "LoraLoaderModelOnly",
-    "_meta": {
-      "title": "LoraLoaderModelOnly"
-    }
-  },
   "10": {
     "inputs": {
       "upscale_method": "lanczos",

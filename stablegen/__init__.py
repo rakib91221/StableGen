@@ -1,6 +1,6 @@
 """ This script registers the addon. """
 import bpy # pylint: disable=import-error
-from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters
+from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters, ResetQwenPrompt
 from .render_tools import BakeTextures, AddCameras, SwitchMaterial, ExportOrbitGIF, CollectCameraPrompts, CameraPromptItem 
 from .utils import AddHDRI, ApplyModifiers, CurvesToMesh
 from .generator import ComfyUIGenerate, Reproject, Regenerate
@@ -14,7 +14,7 @@ bl_info = {
     "name": "StableGen",
     "category": "Object",
     "author": "Ondrej Sakala",
-    "version": (0, 0, 9),
+    "version": (0, 1, 0),
     'blender': (4, 2, 0)
 }
 
@@ -23,6 +23,7 @@ classes = [
     ApplyPreset,
     SavePreset,
     DeletePreset,
+    ResetQwenPrompt,
     BakeTextures,
     AddCameras,
     SwitchMaterial,
@@ -40,6 +41,8 @@ classes = [
 # Global caches for model lists fetched via API
 _cached_checkpoint_list = [("NONE_AVAILABLE", "None available", "Fetch models from server")]
 _cached_lora_list = [("NONE_AVAILABLE", "None available", "Fetch models from server")]
+_cached_checkpoint_architecture = None
+_pending_checkpoint_refresh_architecture = None
 
 def update_combined(self, context):
     # This now primarily updates the preset status and might trigger Enum updates implicitly
@@ -711,37 +714,44 @@ class RefreshCheckpointList(bpy.types.Operator):
         return prefs and prefs.preferences.server_address
 
     def execute(self, context):
-        global _cached_checkpoint_list
+        global _cached_checkpoint_list, _cached_checkpoint_architecture
         items = []
         model_list = None # Initialize to None
 
+        architecture = getattr(context.scene, "model_architecture", "sdxl")
+
         # Determine endpoint based on current architecture setting
-        if context.scene.model_architecture == 'sdxl':
+        if architecture == 'sdxl':
             model_list = fetch_from_comfyui_api(context, "/models/checkpoints")
             model_type_desc = "Checkpoint"
-        elif context.scene.model_architecture == 'flux1':
+        elif architecture == 'flux1':
             model_list = fetch_from_comfyui_api(context, "/models/unet_gguf")
-            to_extend = fetch_from_comfyui_api(context, "/models/diffusion_models")
-            if to_extend:
-                model_list.extend(to_extend)
+            if model_list is not None:
+                to_extend = fetch_from_comfyui_api(context, "/models/diffusion_models")
+                if to_extend:
+                    model_list.extend(to_extend)
             model_type_desc = "UNET"
-        elif context.scene.model_architecture == 'qwen_image_edit':
+        elif architecture == 'qwen_image_edit':
             model_list = fetch_from_comfyui_api(context, "/models/unet_gguf")
             model_type_desc = "UNET (GGUF)"
 
         if model_list is None: # Config error
             _cached_checkpoint_list = [("NO_SERVER", "Set Server Address", "Cannot fetch")]
+            _cached_checkpoint_architecture = None
             self.report({'ERROR'}, "Cannot fetch models. Check server address.")
             # Force UI update if possible
-            context.area.tag_redraw()
+            if context.area:
+                context.area.tag_redraw()
             return {'CANCELLED'}
         elif not model_list: # API ok, but empty list
              _cached_checkpoint_list = [("NONE_FOUND", f"No {model_type_desc}s Found", "Server list is empty")]
+             _cached_checkpoint_architecture = architecture
              self.report({'WARNING'}, f"No {model_type_desc} models found on server.")
         else: # Models found
             for model_name in sorted(model_list):
                 items.append((model_name, model_name, f"{model_type_desc}: {model_name}"))
             _cached_checkpoint_list = items
+            _cached_checkpoint_architecture = architecture
             self.report({'INFO'}, f"Refreshed {model_type_desc} list ({len(items)} found).")
 
         # Reset Logic after refresh
@@ -1015,6 +1025,7 @@ class RemoveLoRAUnit(bpy.types.Operator):
 # load handler to set default ControlNet and LoRA units on first load
 @persistent
 def load_handler(dummy):
+    global _cached_checkpoint_architecture, _pending_checkpoint_refresh_architecture
     if bpy.context.scene:
         scene = bpy.context.scene
         addon_prefs = bpy.context.preferences.addons[__package__].preferences
@@ -1023,7 +1034,19 @@ def load_handler(dummy):
             default_unit.unit_type = 'depth'
         # Default LoRA Unit
         if hasattr(scene, "lora_units") and not scene.lora_units:
-            default_lora_filename_to_find = 'sdxl_lightning_8step_lora.safetensors'
+            default_lora_filename_to_find = None
+            model_strength = 1.0
+            clip_strength = 1.0
+
+            if scene.model_architecture == 'sdxl':
+                default_lora_filename_to_find = 'sdxl_lightning_8step_lora.safetensors'
+            elif scene.model_architecture == 'qwen_image_edit':
+                default_lora_filename_to_find = 'Qwen-Image-Lightning-4steps-V1.0.safetensors'
+                clip_strength = 0.0 # Qwen uses model-only LoRA
+
+            if not default_lora_filename_to_find:
+                return # No default LoRA for this architecture
+
             all_available_loras_enums = get_lora_models(scene, bpy.context) 
             
             found_lora_identifier_to_load = None
@@ -1032,7 +1055,7 @@ def load_handler(dummy):
                 # Check if the identifier (which is the relative path) ends with the desired filename
                 if identifier.endswith(default_lora_filename_to_find):
                     # Ensure it's not a placeholder/error identifier
-                    if identifier not in ["NONE_AVAILABLE", "NO_COMFYUI_DIR_LORA", "NO_LORAS_SUBDIR", "PERM_ERROR", "SCAN_ERROR"]:
+                    if identifier not in ["NONE_AVAILABLE", "NO_COMFYUI_DIR_LORA", "NO_LORAS_SUBDIR", "PERM_ERROR", "SCAN_ERROR", "NONE_FOUND"]:
                         found_lora_identifier_to_load = identifier
                         break 
             
@@ -1041,8 +1064,8 @@ def load_handler(dummy):
                 try:
                     new_lora_unit = scene.lora_units.add()
                     new_lora_unit.model_name = found_lora_identifier_to_load
-                    new_lora_unit.model_strength = 1.0
-                    new_lora_unit.clip_strength = 1.0
+                    new_lora_unit.model_strength = model_strength
+                    new_lora_unit.clip_strength = clip_strength
                     # print(f"StableGen Load Handler: Default LoRA '{found_lora_identifier_to_load}' added.")
                 except TypeError:
                     # This can happen if Enum items are not fully synchronized at this early stage of loading.
@@ -1053,6 +1076,26 @@ def load_handler(dummy):
                     print(f"StableGen Load Handler: Unexpected error setting default LoRA '{found_lora_identifier_to_load}': {e}")
                     if new_lora_unit and scene.lora_units and new_lora_unit == scene.lora_units[-1]:
                         scene.lora_units.remove(len(scene.lora_units)-1)
+
+        # Ensure checkpoint cache matches the scene architecture that just loaded
+        current_architecture = getattr(scene, "model_architecture", None)
+        prefs_wrapper = bpy.context.preferences.addons.get(__package__)
+        if current_architecture and prefs_wrapper:
+            prefs = prefs_wrapper.preferences
+            if prefs.server_address and current_architecture != _cached_checkpoint_architecture and _pending_checkpoint_refresh_architecture != current_architecture:
+
+                def _refresh_checkpoint_for_architecture():
+                    global _pending_checkpoint_refresh_architecture
+                    try:
+                        bpy.ops.stablegen.refresh_checkpoint_list('INVOKE_DEFAULT')
+                    except Exception as timer_error:
+                        print(f"StableGen Load Handler: Failed to refresh checkpoints for '{current_architecture}': {timer_error}")
+                    finally:
+                        _pending_checkpoint_refresh_architecture = None
+                    return None
+
+                _pending_checkpoint_refresh_architecture = current_architecture
+                bpy.app.timers.register(_refresh_checkpoint_for_architecture, first_interval=0.2)
 
 classes_to_append = [CheckServerStatus, RefreshCheckpointList, RefreshLoRAList, STABLEGEN_UL_ControlNetMappingList, ControlNetModelMappingItem, RefreshControlNetMappings, StableGenAddonPreferences, ControlNetUnit, LoRAUnit, AddControlNetUnit, RemoveControlNetUnit, AddLoRAUnit, RemoveLoRAUnit]
 for cls in classes_to_append:
@@ -1652,6 +1695,48 @@ def register():
         update=update_parameters
     )
 
+    bpy.types.Scene.qwen_external_style_initial_only = bpy.props.BoolProperty(
+        name="External for Initial Only",
+        description="Use the external style image for the first image, then use the previously generated image for subsequent images",
+        default=False,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_use_custom_prompts = bpy.props.BoolProperty(
+        name="Use Custom Qwen Prompts",
+        description="Enable to override the default guidance prompts for the Qwen Image Edit workflow",
+        default=False,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_custom_prompt_initial = bpy.props.StringProperty(
+        name="Initial Image Prompt",
+        description="Custom prompt for the first generated image. Use {main_prompt} to insert the main prompt text.",
+        default="Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2",
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_custom_prompt_seq_none = bpy.props.StringProperty(
+        name="Sequential Prompt (No Context)",
+        description="Custom prompt for subsequent images when Context Render is 'Disabled'. Use {main_prompt} to insert the main prompt text.",
+        default="Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2",
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_custom_prompt_seq_replace = bpy.props.StringProperty(
+        name="Sequential Prompt (Replace Style)",
+        description="Custom prompt for subsequent images when Context Render is 'Replace Style'. Use {main_prompt} to insert the main prompt text.",
+        default="Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas.",
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_custom_prompt_seq_additional = bpy.props.StringProperty(
+        name="Sequential Prompt (Additional Context)",
+        description="Custom prompt for subsequent images when Context Render is 'Additional Context'. Use {main_prompt} to insert the main prompt text.",
+        default="Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object.",
+        update=update_parameters
+    )
+
     bpy.types.Scene.output_timestamp = bpy.props.StringProperty(
         name="Output Timestamp",
         description="Timestamp for generation output directory",
@@ -1881,6 +1966,12 @@ def unregister():
     del bpy.types.Scene.qwen_context_render_mode
     del bpy.types.Scene.qwen_use_external_style_image
     del bpy.types.Scene.qwen_external_style_image
+    del bpy.types.Scene.qwen_external_style_initial_only
+    del bpy.types.Scene.qwen_use_custom_prompts
+    del bpy.types.Scene.qwen_custom_prompt_initial
+    del bpy.types.Scene.qwen_custom_prompt_seq_none
+    del bpy.types.Scene.qwen_custom_prompt_seq_replace
+    del bpy.types.Scene.qwen_custom_prompt_seq_additional
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
