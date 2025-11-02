@@ -13,9 +13,9 @@ import json
 from datetime import datetime
 
 import math
-from PIL import Image
+from PIL import Image, ImageEnhance
 
-from .util.helpers import prompt_text, prompt_text_img2img  # pylint: disable=relative-beyond-top-level
+from .util.helpers import prompt_text, prompt_text_img2img, prompt_text_qwen_image_edit # pylint: disable=relative-beyond-top-level
 from .render_tools import export_emit_image, export_visibility, export_canny, bake_texture, prepare_baking, unwrap # pylint: disable=relative-beyond-top-level
 from .utils import get_last_material_index, get_generation_dirs, get_file_path, get_dir_path, remove_empty_dirs # pylint: disable=relative-beyond-top-level
 from .project import project_image, reinstate_compare_nodes # pylint: disable=relative-beyond-top-level
@@ -160,7 +160,7 @@ class Reproject(bpy.types.Operator):
         :return: {'FINISHED'}     
         """
         if context.scene.texture_objects == 'all':
-            to_texture = [obj for obj in bpy.context.view.objects if obj.type == 'MESH' and not obj.hide_get()]
+            to_texture = [obj for obj in bpy.context.view_layer.objects if obj.type == 'MESH' and not obj.hide_get()]
         else: # selected
             to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
 
@@ -541,7 +541,7 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         if context.scene.generation_mode == 'standard':
             # If there is depth controlnet unit
-            if any(unit["unit_type"] == "depth" for unit in controlnet_units) or (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1'):
+            if any(unit["unit_type"] == "depth" for unit in controlnet_units) or (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1') or (context.scene.model_architecture == 'qwen_image_edit' and context.scene.qwen_guidance_map_type == 'depth'):
                 if context.scene.generation_method != 'uv_inpaint':
                     # Export depth maps for each camera
                     for i, camera in enumerate(self._cameras):
@@ -559,7 +559,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                     if context.scene.generation_method == 'grid':
                         self.combine_maps(context, self._cameras, type="canny")
             # If there is normal controlnet unit
-            if any(unit["unit_type"] == "normal" for unit in controlnet_units):
+            if any(unit["unit_type"] == "normal" for unit in controlnet_units) or (context.scene.model_architecture == 'qwen_image_edit' and context.scene.qwen_guidance_map_type == 'normal'):
                 if context.scene.generation_method != 'uv_inpaint':
                     # Export normal maps for each camera
                     for i, camera in enumerate(self._cameras):
@@ -816,7 +816,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                     # End Prepare Image Info
 
                     # Generate image without ControlNet if needed
-                    if context.scene.generation_mode == 'standard' and camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate' or context.scene.generation_method == 'refine')\
+                    if context.scene.generation_mode == 'standard' and camera_id == 0 and (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'refine')\
                             and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate and not context.scene.use_ipadapter and context.scene.sequential_ipadapter_mode == 'first':
                         self._stage = "Generating Reference Image"
                         # Don't use ControlNet for the first image if sequential_ipadapter_regenerate_wo_controlnet is enabled
@@ -843,6 +843,8 @@ class ComfyUIGenerate(bpy.types.Operator):
                         if self._current_image == 0:
                             if context.scene.model_architecture == 'flux1':
                                 image = self.generate_flux(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
+                            elif context.scene.model_architecture == 'qwen_image_edit':
+                                image = self.generate_qwen_edit(context, camera_id=camera_id)
                             else:
                                 image = self.generate(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
                         else:
@@ -860,11 +862,15 @@ class ComfyUIGenerate(bpy.types.Operator):
                             mask_info = self._get_uploaded_image_info(context, "inpaint", subtype="visibility", camera_id=self._current_image)
                             if context.scene.model_architecture == 'flux1':
                                 image = self.refine_flux(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
+                            elif context.scene.model_architecture == 'qwen_image_edit':
+                                image = self.generate_qwen_edit(context, camera_id=camera_id)
                             else:
                                 image = self.refine(context, controlnet_info=controlnet_info, render_info=render_info, mask_info=mask_info, ipadapter_ref_info=ipadapter_ref_info)
                     else: # Grid or Separate
                         if context.scene.model_architecture == 'flux1':
                             image = self.generate_flux(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
+                        elif context.scene.model_architecture == 'qwen_image_edit':
+                            image = self.generate_qwen_edit(context, camera_id=camera_id)
                         else:
                             image = self.generate(context, controlnet_info=controlnet_info, ipadapter_ref_info=ipadapter_ref_info)
 
@@ -1006,6 +1012,140 @@ class ComfyUIGenerate(bpy.types.Operator):
         elif context.scene.control_after_generate == 'randomize':
             context.scene.seed = np.random.randint(0, 1000000)
 
+    def generate_qwen_edit(self, context, camera_id=None):
+        """Generates an image using the Qwen-Image-Edit workflow."""
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        prompt = json.loads(prompt_text_qwen_image_edit)
+
+        NODES = {
+            'sampler': "1",
+            'save_image': "5",
+            'pos_prompt': "12",
+            'neg_prompt': "11",
+            'guidance_map_loader': "14", # Image 1 (structure)
+            'style_map_loader': "15",   # Image 2 (style)
+            'context_render_loader': "16", # Image 3 (context render)
+        }
+
+        # --- Configure Inputs ---
+        guidance_map_type = context.scene.qwen_guidance_map_type
+        guidance_map_info = self._get_uploaded_image_info(context, "controlnet", subtype=guidance_map_type, camera_id=camera_id)
+        if not guidance_map_info:
+            self._error = f"Could not find or upload {guidance_map_type} map for camera {camera_id}."
+            return {"error": "conn_failed"}
+        prompt[NODES['guidance_map_loader']]['inputs']['image'] = guidance_map_info['name']
+
+        # --- Configure Style Image (Image 2) and Prompts ---
+        user_prompt = context.scene.comfyui_prompt
+        style_image_info = None
+        context_render_info = None
+        context_mode = context.scene.qwen_context_render_mode
+        remove_context = False
+
+        # --- Camera Prompt Injection ---
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine'] and self._cameras and self._current_image < len(self._cameras):
+            current_camera_name = self._cameras[self._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                user_prompt = f"{view_desc}, {user_prompt}"
+
+        # --- Handle Context Render (Image 3) ---
+        # This is only active in sequential mode after the first image
+        if context.scene.generation_method == 'sequential' and self._current_image > 0 and context_mode != 'NONE':
+            context_render_info = self._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=camera_id)
+            if not context_render_info:
+                self._error = f"Qwen context render enabled, but could not find context render for camera {camera_id}."
+                return {"error": "conn_failed"}
+            
+            if context_mode == 'ADDITIONAL':
+                # Switch context loader and style loader ids
+                NODES['context_render_loader'], NODES['style_map_loader'] = NODES['style_map_loader'], NODES['context_render_loader']
+                prompt[NODES['context_render_loader']]['inputs']['image'] = context_render_info['name']
+                # The prompt needs to reference image 3
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Image 2 contains the unfinished image, where the magenta areas need to be completely filled in. Only transfer the style from the completed part of the image. Remove all the magenta areas. Make sure there are no artifacts left behind from the magenta areas. Image 3 represents the overall style of the object."
+                # prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of {user_prompt} in image 1 to the style from image 2. Image 3 contains the unfinished image, where the magenta areas need to be replaced and completed."
+            # If mode is REPLACE_STYLE, we will handle it in the style image section below.
+            else:
+                remove_context = True
+        else:
+            remove_context = True
+
+        if remove_context:
+            del prompt[NODES['context_render_loader']]
+            del prompt[NODES['pos_prompt']]['inputs']['image3']
+            del prompt[NODES['neg_prompt']]['inputs']['image3']
+
+
+        # --- Handle Style Image (Image 2) ---
+        # Case 1: External Style Image for all viewpoints
+        if context.scene.qwen_use_external_style_image:
+            style_image_info = self._get_uploaded_image_info(context, "custom", filename=bpy.path.abspath(context.scene.qwen_external_style_image))
+            if not style_image_info:
+                self._error = "External style image enabled, but file not found or could not be uploaded."
+                return {"error": "conn_failed"}
+            if context_mode != 'ADDITIONAL':
+                 prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+
+        # Case 2: Sequential generation (after first image)
+        elif context.scene.generation_method == 'sequential' and self._current_image > 0:
+            if context_mode == 'REPLACE_STYLE':
+                # The context render becomes the style image
+                style_image_info = context_render_info
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas."
+            elif context.scene.sequential_ipadapter: # Use previous generated image
+                ref_cam_id = 0 if context.scene.sequential_ipadapter_mode == 'first' else self._current_image - 1
+                style_image_info = self._get_uploaded_image_info(context, "generated", camera_id=ref_cam_id, material_id=self._material_id)
+                if not style_image_info:
+                    self._error = f"Sequential mode error: Could not find previous image for camera {ref_cam_id} to use as style."
+                    return {"error": "conn_failed"}
+                if context_mode != 'ADDITIONAL':
+                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+            # If neither of the above, style_image_info remains None, handled below
+
+        # Case 3: First image of a sequence, or separate generation, or no style source in sequential
+        if style_image_info is None:
+            # No style image is provided. For the first image, we remove image2 entirely.
+            del prompt[NODES['style_map_loader']]
+            del prompt[NODES['pos_prompt']]['inputs']['image2']
+            del prompt[NODES['neg_prompt']]['inputs']['image2']
+            prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change the format of image 1 to '{user_prompt}'"
+        else:
+            # A style image is provided, so set the loader input.
+            prompt[NODES['style_map_loader']]['inputs']['image'] = style_image_info['name']
+
+        # --- Configure Sampler ---
+        prompt[NODES['sampler']]['inputs']['seed'] = context.scene.seed
+        prompt[NODES['sampler']]['inputs']['steps'] = context.scene.steps
+        prompt[NODES['sampler']]['inputs']['cfg'] = context.scene.cfg
+        prompt[NODES['sampler']]['inputs']['sampler_name'] = context.scene.sampler
+        prompt[NODES['sampler']]['inputs']['scheduler'] = context.scene.scheduler
+        prompt[NODES['sampler']]['inputs']['denoise'] = 1.0 # Typically 1.0 for this kind of edit
+
+        # --- Execute ---
+        self._save_prompt_to_file(prompt, revision_dir)
+        ws = self._connect_to_websocket(server_address, client_id)
+        if ws is None:
+            return {"error": "conn_failed"}
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or (isinstance(images, dict) and "error" in images):
+            return {"error": "conn_failed"}
+
+        print(f"Qwen image generated with prompt: {prompt[NODES['pos_prompt']]['inputs']['prompt']}")
+        return images[NODES['save_image']][0]
+
     def _get_uploaded_image_info(self, context, file_type, subtype=None, filename=None, camera_id=None, object_name=None, material_id=None):
         """
         Gets local path, uploads if needed, caches, and returns ComfyUI upload info.
@@ -1034,6 +1174,43 @@ class ComfyUIGenerate(bpy.types.Operator):
         else:
             local_path = filename
 
+        # --- Image Modification for 'recent' sequential mode ---
+        # Check if we need to modify the image before uploading
+        is_recent_mode_ref = (
+            file_type == "generated" and
+            context.scene.sequential_ipadapter_mode == 'recent' and
+            (context.scene.sequential_ipadapter or context.scene.model_architecture == 'qwen_image_edit')
+        )
+        
+        temp_image_path = None
+        upload_path = local_path
+
+        if is_recent_mode_ref:
+            desaturate = context.scene.sequential_desaturate_factor
+            contrast = context.scene.sequential_contrast_factor
+
+            if desaturate > 0.0 or contrast > 0.0:
+                try:
+                    with Image.open(local_path) as img:
+                        if desaturate > 0.0:
+                            enhancer = ImageEnhance.Color(img)
+                            img = enhancer.enhance(1.0 - desaturate)
+                        
+                        if contrast > 0.0:
+                            enhancer = ImageEnhance.Contrast(img)
+                            img = enhancer.enhance(1.0 - contrast)
+                        
+                        # Save to a temporary file for upload
+                        temp_dir = get_dir_path(context, "temp")
+                        os.makedirs(temp_dir, exist_ok=True)
+                        temp_image_path = os.path.join(temp_dir, f"temp_{os.path.basename(local_path)}")
+                        img.save(temp_image_path)
+                        upload_path = temp_image_path
+                except Exception as e:
+                    print(f"Error modifying image {local_path}: {e}. Uploading original.")
+                    upload_path = local_path # Fallback to original on error
+        # --- End Image Modification ---
+
         # Use the operator's instance cache variable (self._uploaded_images_cache)
         if not hasattr(self, '_uploaded_images_cache') or self._uploaded_images_cache is None:
             # Initialize cache if it doesn't exist (e.g., first call in execute)
@@ -1043,7 +1220,7 @@ class ComfyUIGenerate(bpy.types.Operator):
 
 
         # Check cache first using the absolute local path as the key
-        absolute_local_path = os.path.abspath(local_path)
+        absolute_local_path = os.path.abspath(upload_path)
         cached_info = self._uploaded_images_cache.get(absolute_local_path)
         if cached_info is not None: # Can be None if previous upload failed
             # print(f"Debug: Using cached upload info for: {absolute_local_path}")
@@ -1061,6 +1238,10 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         # Store result (the info dict or None if upload failed) in cache
         self._uploaded_images_cache[absolute_local_path] = uploaded_info
+
+        # Clean up the temporary file after upload
+        if temp_image_path and os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
 
         if uploaded_info:
             return uploaded_info

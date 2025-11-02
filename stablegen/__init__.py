@@ -719,12 +719,15 @@ class RefreshCheckpointList(bpy.types.Operator):
         if context.scene.model_architecture == 'sdxl':
             model_list = fetch_from_comfyui_api(context, "/models/checkpoints")
             model_type_desc = "Checkpoint"
-        else: # flux1
+        elif context.scene.model_architecture == 'flux1':
             model_list = fetch_from_comfyui_api(context, "/models/unet_gguf")
             to_extend = fetch_from_comfyui_api(context, "/models/diffusion_models")
             if to_extend:
                 model_list.extend(to_extend)
             model_type_desc = "UNET"
+        elif context.scene.model_architecture == 'qwen_image_edit':
+            model_list = fetch_from_comfyui_api(context, "/models/unet_gguf")
+            model_type_desc = "UNET (GGUF)"
 
         if model_list is None: # Config error
             _cached_checkpoint_list = [("NO_SERVER", "Set Server Address", "Cannot fetch")]
@@ -1251,6 +1254,22 @@ def register():
         default='first',
         update=update_parameters
     )
+    bpy.types.Scene.sequential_desaturate_factor = bpy.props.FloatProperty(
+        name="Desaturate Recent Image",
+        description="Desaturation factor for the 'most recent' image to prevent color stacking. 0.0 is no change, 1.0 is fully desaturated",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        update=update_parameters
+    )
+    bpy.types.Scene.sequential_contrast_factor = bpy.props.FloatProperty(
+        name="Reduce Contrast of Recent Image",
+        description="Contrast reduction factor for the 'most recent' image to prevent contrast stacking. 0.0 is no change, 1.0 is maximum reduction (grey)",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        update=update_parameters
+    )
     bpy.types.Scene.sequential_ipadapter_regenerate = bpy.props.BoolProperty(
         name="Regenerate IPAdapter",
         description="IPAdapter generations may differ from the original image. This option regenerates the first viewpoint with IPAdapter to match the rest of the images.",
@@ -1588,12 +1607,51 @@ def register():
         description="Select the model architecture to use for generation",
         items=[
             ('sdxl', 'SDXL', ''),
-            ('flux1', 'Flux 1', '')
+            ('flux1', 'Flux 1', ''),
+            ('qwen_image_edit', 'Qwen Image Edit', '')
         ],
         default='sdxl',
         update=update_combined
     )
     
+    bpy.types.Scene.qwen_guidance_map_type = bpy.props.EnumProperty(
+        name="Guidance Map",
+        description="The type of guidance map to use for Qwen Image Edit",
+        items=[
+            ('depth', 'Depth Map', 'Use depth map for structural guidance'),
+            ('normal', 'Normal Map', 'Use normal map for structural guidance')
+        ],
+        default='depth',
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_context_render_mode = bpy.props.EnumProperty(
+        name="Context Render",
+        description="How to use the RGB context render in sequential mode for Qwen",
+        items=[
+            ('NONE', 'Disabled', 'Do not use the RGB context render'),
+            ('REPLACE_STYLE', 'Replace Style Image', 'Use context render instead of the previous generated image as the style reference'),
+            ('ADDITIONAL', 'Additional Context', 'Use context render as an additional image input (image 3) for context')
+        ],
+        default='NONE',
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_use_external_style_image = bpy.props.BoolProperty(
+        name="Use External Style Image",
+        description="Use a separate, external image as the style reference for all viewpoints",
+        default=False,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_external_style_image = bpy.props.StringProperty(
+        name="Style Reference Image",
+        description="Path to the external style reference image",
+        default="",
+        subtype='FILE_PATH',
+        update=update_parameters
+    )
+
     bpy.types.Scene.output_timestamp = bpy.props.StringProperty(
         name="Output Timestamp",
         description="Timestamp for generation output directory",
@@ -1798,6 +1856,8 @@ def unregister():
     del bpy.types.Scene.ipadapter_end
     del bpy.types.Scene.sequential_ipadapter
     del bpy.types.Scene.sequential_ipadapter_mode
+    del bpy.types.Scene.sequential_desaturate_factor
+    del bpy.types.Scene.sequential_contrast_factor
     del bpy.types.Scene.sequential_ipadapter_regenerate
     del bpy.types.Scene.ipadapter_weight_type
     del bpy.types.Scene.clip_skip
@@ -1817,7 +1877,11 @@ def unregister():
     del bpy.types.Scene.early_priority_strength
     del bpy.types.Scene.early_priority
     del bpy.types.Scene.texture_objects
-    
+    del bpy.types.Scene.qwen_guidance_map_type
+    del bpy.types.Scene.qwen_context_render_mode
+    del bpy.types.Scene.qwen_use_external_style_image
+    del bpy.types.Scene.qwen_external_style_image
+
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
         

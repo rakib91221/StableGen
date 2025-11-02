@@ -14,6 +14,7 @@ PRESETS = {
     "QUICK DRAFT": {"description": "Optimized for speed", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 4, "cfg": 1.0, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.0, 0.0, 0.0)), "discard_factor": 70.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "grid", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.1, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 2, "blur_mask_sigma": 1.0, "grow_mask_by": 2, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.5, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'Hyper-SDXL-4steps-lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
     "UV INPAINTING": {"description": "Recommended UV Inpainting setup. It is recommended to bake texutures manually before running the generation to fine-tune unwrapping and avoid lag when generating.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 10, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.0, 0.0, 0.0)), "discard_factor": 80.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "uv_inpaint", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "3,0,1,2", "sequential_factor": 0.6000000238418579, "sequential_factor_smooth": 0.11000001430511475, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]}, # No ControlNet for UV Inpainting by default
     "ARCHITECTURE": {"description": "Prioritizes only the most straight-on camera for each point. This means details generated on flat surfaces will not get blurred by getting generated differently from two or more viewpoints. Does not use visibility masking. Each picture will get generated as new, consistency depends on IPAdapter + geometry.", "control_after_generate": "fixed", "model_architecture": "sdxl", "steps": 8, "cfg": 1.5, "sampler": "dpmpp_2s_ancestral", "scheduler": "sgm_uniform", "fallback_color": mathutils.Color((0.0, 0.0, 0.0)), "discard_factor": 80.0, "weight_exponent": 10.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "separate", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": False, "sequential_custom_camera_order": "", "sequential_factor": 0.75, "sequential_factor_smooth": 0.15000000596046448, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "ipadapter_weight_type": "style", "ipadapter_strength": 0.800000011920929, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": False, "blur_mask": True, "blur_mask_radius": 3, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "controlnet_units": [{'unit_type': 'depth', 'model_name': 'controlnet_depth_sdxl.safetensors', 'strength': 0.6000000238418579, 'start_percent': 0.0, 'end_percent': 1.0, 'is_union': False, 'use_union_type': True}], "lora_units": [{'model_name': 'sdxl_lightning_8step_lora.safetensors', 'model_strength': 1.0, 'clip_strength': 1.0}]},
+    "QWEN IMAGE EDIT": {"description": "Recommended settings for Qwen Image Edit. Uses depth map for guidance and sequential mode for consistency.", "control_after_generate": "fixed", "model_architecture": "qwen_image_edit", "steps": 4, "cfg": 1.0, "sampler": "euler", "scheduler": "simple", "fallback_color": mathutils.Color((0.0, 0.0, 0.0)), "discard_factor": 90.0, "weight_exponent": 3.0, "clip_skip": 1, "auto_rescale": True, "overwrite_material": True, "bake_texture": False, "bake_texture_size": 2048, "bake_unwrap_method": "none", "bake_unwrap_overlap_only": True, "generation_method": "sequential", "refine_images": False, "refine_steps": 8, "refine_sampler": "dpmpp_2s_ancestral", "refine_scheduler": "sgm_uniform", "denoise": 1.0, "refine_cfg": 1.5, "refine_prompt": "", "refine_upscale_method": "lanczos", "sequential_smooth": True, "sequential_custom_camera_order": "", "sequential_factor": 0.7, "sequential_factor_smooth": 0.15, "sequential_factor_smooth_2": 1.0, "sequential_ipadapter": True, "sequential_ipadapter_mode": "first", "sequential_ipadapter_regenerate": False, "ipadapter_weight_type": "style", "ipadapter_strength": 1.0, "ipadapter_start": 0.0, "ipadapter_end": 1.0, "differential_diffusion": True, "differential_noise": True, "blur_mask": True, "blur_mask_radius": 1, "blur_mask_sigma": 1.0, "grow_mask_by": 3, "canny_threshold_low": 0, "canny_threshold_high": 80, "qwen_guidance_map_type": "depth", "qwen_use_external_style_image": False, "qwen_external_style_image": "", "qwen_context_render_mode": "NONE"},
 }
 
 # Global list of all generation parameter names to check for a preset.
@@ -50,6 +51,8 @@ GEN_PARAMETERS = [
     "sequential_factor_smooth_2",
     "sequential_ipadapter",
     "sequential_ipadapter_mode",
+    "sequential_desaturate_factor",
+    "sequential_contrast_factor",
     "sequential_ipadapter_regenerate",
     "ipadapter_weight_type",
     "ipadapter_strength",
@@ -63,6 +66,10 @@ GEN_PARAMETERS = [
     "grow_mask_by",
     "canny_threshold_low",
     "canny_threshold_high",
+    "qwen_guidance_map_type",
+    "qwen_use_external_style_image",
+    "qwen_external_style_image",
+    "qwen_context_render_mode",
 ]
 
 def get_preset_items(self, context):
@@ -506,8 +513,41 @@ class StableGenPanel(bpy.types.Panel):
             # --- Image Guidance (IPAdapter & ControlNet) ---
             content_box = draw_collapsible_section(advanced_params_box, "show_image_guidance_settings", "Image Guidance (IPAdapter & ControlNet)", icon="MODIFIER")
             if content_box:
+                if scene.model_architecture == 'qwen_image_edit':
+                    qwen_box = content_box.box()
+                    row = qwen_box.row()
+                    row.alignment = 'CENTER'
+                    row.label(text="Qwen Image Edit Guidance", icon="IMAGE_DATA")
+
+                    split = qwen_box.split(factor=0.5)
+                    split.label(text="Guidance Map:")
+                    split.prop(scene, "qwen_guidance_map_type", text="")
+
+                    row = qwen_box.row()
+                    row.prop(scene, "qwen_use_external_style_image", text="Use External Style Image", toggle=True, icon="FILE_IMAGE")
+
+                    if scene.qwen_use_external_style_image:
+                        row = qwen_box.row()
+                        row.prop(scene, "qwen_external_style_image", text="Style Image")
+
+                    if scene.generation_method == 'sequential':
+                        split = qwen_box.split(factor=0.5)
+                        split.label(text="Context Render:")
+                        split.prop(scene, "qwen_context_render_mode", text="")
+
+                    if scene.generation_method in ['sequential', 'separate']:
+                        row = qwen_box.row()
+                        row.prop(scene, "sequential_ipadapter", text="Use Previous Image as Style", toggle=True, icon="MODIFIER")
+                        if scene.sequential_ipadapter:
+                            sub_box = qwen_box.box()
+                            split = sub_box.split(factor=0.5)
+                            split.label(text="Mode:")
+                            split.prop(scene, "sequential_ipadapter_mode", text="")
+                            if scene.sequential_ipadapter_mode == 'recent':
+                                sub_box.prop(scene, "sequential_desaturate_factor", text="Desaturate")
+                                sub_box.prop(scene, "sequential_contrast_factor", text="Reduce Contrast")
                 # IPAdapter Parameters
-                if not scene.generation_method == 'uv_inpaint':
+                if not scene.generation_method == 'uv_inpaint' and not scene.model_architecture == 'qwen_image_edit':
                     ipadapter_main_box = content_box.box() # Group IPAdapter settings together
                     if scene.model_architecture == 'flux1':
                         row = ipadapter_main_box.row()
@@ -531,9 +571,10 @@ class StableGenPanel(bpy.types.Panel):
                             split.label(text="Weight Type:")
                             split.prop(scene, "ipadapter_weight_type", text="")
                 
-                content_box.separator() # Separator between IPAdapter and ControlNet if both are shown
+                if not scene.model_architecture == 'qwen_image_edit':
+                    content_box.separator() # Separator between IPAdapter and ControlNet if both are shown
                 # ControlNet Parameters
-                if not (scene.model_architecture == 'flux1' and scene.use_flux_lora):
+                if not (scene.model_architecture == 'flux1' and scene.use_flux_lora) and not scene.model_architecture == 'qwen_image_edit':
                     ctrl_box_group = content_box.box() # Group ControlNet settings together
                     row = ctrl_box_group.row()
                     row.alignment = 'CENTER'
@@ -665,10 +706,15 @@ class StableGenPanel(bpy.types.Panel):
                         split.label(text="Mode:")
                         split.prop(scene, "sequential_ipadapter_mode", text="") 
 
-                        split = sub_ip_box_separate.split(factor=0.5) 
-                        if context.scene.model_architecture == 'sdxl':
-                            split.label(text="Weight Type:")
-                            split.prop(scene, "ipadapter_weight_type", text="")
+                        if scene.sequential_ipadapter_mode == 'recent':
+                            sub_ip_box_separate.prop(scene, "sequential_desaturate_factor", text="Desaturate")
+                            sub_ip_box_separate.prop(scene, "sequential_contrast_factor", text="Reduce Contrast")
+
+                        if context.scene.model_architecture != 'qwen_image_edit':
+                            split = sub_ip_box_separate.split(factor=0.5) 
+                            if context.scene.model_architecture == 'sdxl':
+                                split.label(text="Weight Type:")
+                                split.prop(scene, "ipadapter_weight_type", text="")
                         
                         row = sub_ip_box_separate.row()
                         row.prop(scene, "ipadapter_strength", text="Strength")
@@ -771,11 +817,16 @@ class StableGenPanel(bpy.types.Panel):
                         split.label(text="Mode:")
                         split.prop(scene, "sequential_ipadapter_mode", text="")
 
-                        split = sub_ip_seq_box.split(factor=0.5)
-                        if context.scene.model_architecture == 'sdxl':
-                            split.label(text="Weight Type:")
-                            split.prop(scene, "ipadapter_weight_type", text="")
+                        if scene.sequential_ipadapter_mode == 'recent':
+                            sub_ip_seq_box.prop(scene, "sequential_desaturate_factor", text="Desaturate")
+                            sub_ip_seq_box.prop(scene, "sequential_contrast_factor", text="Reduce Contrast")
 
+                        if context.scene.model_architecture != 'qwen_image_edit':
+                            split = sub_ip_seq_box.split(factor=0.5)
+                            if context.scene.model_architecture == 'sdxl':
+                                split.label(text="Weight Type:")
+                                split.prop(scene, "ipadapter_weight_type", text="")
+                        
                         row = sub_ip_seq_box.row()
                         row.prop(scene, "ipadapter_strength", text="Strength")
                         if width_mode == 'narrow':
