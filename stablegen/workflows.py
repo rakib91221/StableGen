@@ -1,0 +1,1392 @@
+import bpy
+import os
+import json
+import uuid
+import websocket
+import socket
+import urllib.request
+
+from .util.helpers import prompt_text_qwen_image_edit
+from .utils import get_generation_dirs
+
+class WorkflowManager:
+    def __init__(self, operator):
+        """
+        Initializes the WorkflowManager.
+
+        Args:
+            operator: The instance of the ComfyUIGenerate operator.
+        """
+        self.operator = operator
+
+    def generate_qwen_edit(self, context, camera_id=None):
+        """Generates an image using the Qwen-Image-Edit workflow."""
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        prompt = json.loads(prompt_text_qwen_image_edit)
+
+        NODES = {
+            'sampler': "1",
+            'save_image': "5",
+            'vae_encode': "8",
+            'pos_prompt': "12",
+            'neg_prompt': "11",
+            'guidance_map_loader': "14", # Image 1 (structure)
+            'style_map_loader': "15",   # Image 2 (style)
+            'context_render_loader': "16", # Image 3 (context render)
+        }
+
+        # --- Configure Inputs ---
+        guidance_map_type = context.scene.qwen_guidance_map_type
+        guidance_map_info = self.operator._get_uploaded_image_info(context, "controlnet", subtype=guidance_map_type, camera_id=camera_id)
+        if not guidance_map_info:
+            self.operator._error = f"Could not find or upload {guidance_map_type} map for camera {camera_id}."
+            return {"error": "conn_failed"}
+        prompt[NODES['guidance_map_loader']]['inputs']['image'] = guidance_map_info['name']
+
+        # --- Configure Style Image (Image 2) and Prompts ---
+        user_prompt = context.scene.comfyui_prompt
+        style_image_info = None
+        context_render_info = None
+        context_mode = context.scene.qwen_context_render_mode
+        remove_context = False
+
+        # --- Camera Prompt Injection ---
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+            current_camera_name = self.operator._cameras[self.operator._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                user_prompt = f"{view_desc}, {user_prompt}"
+
+        # --- Handle Context Render (Image 3) ---
+        # This is only active in sequential mode after the first image
+        if context.scene.generation_method == 'sequential' and self.operator._current_image > 0 and context_mode != 'NONE':
+            context_render_info = self.operator._get_uploaded_image_info(context, "inpaint", subtype="render", camera_id=camera_id)
+            if not context_render_info:
+                self.operator._error = f"Qwen context render enabled, but could not find context render for camera {camera_id}."
+                return {"error": "conn_failed"}
+            
+            if context_mode == 'ADDITIONAL':
+                # Switch context loader and style loader ids
+                NODES['context_render_loader'], NODES['style_map_loader'] = NODES['style_map_loader'], NODES['context_render_loader']
+                prompt[NODES['context_render_loader']]['inputs']['image'] = context_render_info['name']
+                # The prompt needs to reference image 3
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object."
+                # prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of {user_prompt} in image 1 to the style from image 2. Image 3 contains the unfinished image, where the magenta areas need to be replaced and completed."
+            # If mode is REPLACE_STYLE, we will handle it in the style image section below.
+            else:
+                remove_context = True
+        else:
+            remove_context = True
+
+        if remove_context:
+            del prompt[NODES['context_render_loader']]
+            del prompt[NODES['pos_prompt']]['inputs']['image3']
+            del prompt[NODES['neg_prompt']]['inputs']['image3']
+
+
+        # --- Handle Style Image (Image 2) ---
+        # Case 1: External Style Image for all viewpoints
+        if context.scene.qwen_use_external_style_image:
+            style_image_info = self.operator._get_uploaded_image_info(context, "custom", filename=bpy.path.abspath(context.scene.qwen_external_style_image))
+            if not style_image_info:
+                self.operator._error = "External style image enabled, but file not found or could not be uploaded."
+                return {"error": "conn_failed"}
+            if context_mode != 'ADDITIONAL':
+                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+
+        # Case 2: Sequential generation (after first image)
+        elif context.scene.generation_method == 'sequential' and self.operator._current_image > 0:
+            if context_mode == 'REPLACE_STYLE':
+                # The context render becomes the style image
+                style_image_info = context_render_info
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of image 1 to '{user_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas."
+            elif context.scene.sequential_ipadapter: # Use previous generated image
+                ref_cam_id = 0 if context.scene.sequential_ipadapter_mode == 'first' else self.operator._current_image - 1
+                style_image_info = self.operator._get_uploaded_image_info(context, "generated", camera_id=ref_cam_id, material_id=self.operator._material_id)
+                if not style_image_info:
+                    self.operator._error = f"Sequential mode error: Could not find previous image for camera {ref_cam_id} to use as style."
+                    return {"error": "conn_failed"}
+                if context_mode != 'ADDITIONAL':
+                    prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change and transfer the format of '{user_prompt}' in image 1 to the style from image 2"
+            # If neither of the above, style_image_info remains None, handled below
+
+        # Case 3: First image of a sequence, or separate generation, or no style source in sequential
+        if style_image_info is None:
+            # No style image is provided. For the first image, we remove image2 entirely.
+            del prompt[NODES['style_map_loader']]
+            del prompt[NODES['pos_prompt']]['inputs']['image2']
+            del prompt[NODES['neg_prompt']]['inputs']['image2']
+            prompt[NODES['pos_prompt']]['inputs']['prompt'] = f"Change the format of image 1 to '{user_prompt}'"
+        else:
+            # A style image is provided, so set the loader input.
+            prompt[NODES['style_map_loader']]['inputs']['image'] = style_image_info['name']
+
+        # --- Configure Sampler ---
+        prompt[NODES['sampler']]['inputs']['seed'] = context.scene.seed
+        prompt[NODES['sampler']]['inputs']['steps'] = context.scene.steps
+        prompt[NODES['sampler']]['inputs']['cfg'] = context.scene.cfg
+        prompt[NODES['sampler']]['inputs']['sampler_name'] = context.scene.sampler
+        prompt[NODES['sampler']]['inputs']['scheduler'] = context.scene.scheduler
+        prompt[NODES['sampler']]['inputs']['denoise'] = 1.0 # Typically 1.0 for this kind of edit
+
+        # --- Execute ---
+        self._save_prompt_to_file(prompt, revision_dir)
+        ws = self._connect_to_websocket(server_address, client_id)
+        if ws is None:
+            return {"error": "conn_failed"}
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or (isinstance(images, dict) and "error" in images):
+            return {"error": "conn_failed"}
+
+        print(f"Qwen image generated with prompt: {prompt[NODES['pos_prompt']]['inputs']['prompt']}")
+        return images[NODES['save_image']][0]
+    
+
+    def generate(self, context, controlnet_info=None, ipadapter_ref_info=None):
+        """     
+        Generates the image using ComfyUI.         
+        :param context: Blender context.
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
+        :return: Generated image binary data.     
+        """
+
+        # Setup connection parameters
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        # Get revision dir for debug file
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        # Initialize the prompt template and get node mappings
+        prompt, NODES = self._create_base_prompt(context)
+        
+        # Set model resolution
+        self._configure_resolution(prompt, context, NODES)
+
+        if ipadapter_ref_info:
+            # Configure IPAdapter settings
+            self._configure_ipadapter(prompt, context, ipadapter_ref_info, NODES)
+        else:
+            # Remove IPAdapter nodes if not used
+            for node_id in ['235', '236', '237']:
+                if node_id in prompt:
+                    del prompt[node_id]
+        
+        # Build controlnet chain
+        prompt = self._build_controlnet_chain(prompt, context, controlnet_info, NODES)
+        
+        # Save prompt for debugging (in revision dir)
+        self._save_prompt_to_file(prompt, revision_dir)
+
+        # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
+        
+        print(f"Image generated with prompt: {context.scene.comfyui_prompt}")
+        
+        # Return the generated image from the save_image node
+        return images[NODES['save_image']][0]
+
+    def _create_base_prompt(self, context):
+        """Creates and configures the base prompt with user settings."""
+        from .util.helpers import prompt_text
+        
+        # Load the base prompt template
+        prompt = json.loads(prompt_text)
+        
+        # Node IDs organized by functional category
+        NODES = {
+            # Text Prompting
+            'pos_prompt': "9",
+            'neg_prompt': "10",
+            'clip_skip': "247",
+            
+            # Sampling Control
+            'sampler': "15",
+            'seed_control': "15",  # Same as sampler node but for seed parameter
+            
+            # Model Loading
+            'checkpoint': "6",
+            
+            # Latent Space
+            'latent': "16",
+            
+            # Image Output
+            'save_image': "25",
+
+            # IPAdapter
+            'ipadapter_loader': "235",
+            'ipadapter': "236",
+            'ipadapter_image': "237",
+        }
+        
+        base_prompt_text = context.scene.comfyui_prompt
+        # Camera Prompt Injection
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+            current_camera_name = self.operator._cameras[self.operator._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                base_prompt_text = f"{view_desc}, {base_prompt_text}"
+        
+        # Set text prompts
+        prompt[NODES['pos_prompt']]["inputs"]["text"] = base_prompt_text
+        prompt[NODES['neg_prompt']]["inputs"]["text"] = context.scene.comfyui_negative_prompt
+        
+        # Set sampling parameters
+        prompt[NODES['sampler']]["inputs"]["seed"] = context.scene.seed
+        prompt[NODES['sampler']]["inputs"]["steps"] = context.scene.steps
+        prompt[NODES['sampler']]["inputs"]["cfg"] = context.scene.cfg
+        prompt[NODES['sampler']]["inputs"]["sampler_name"] = context.scene.sampler
+        prompt[NODES['sampler']]["inputs"]["scheduler"] = context.scene.scheduler
+        
+        # Set clip skip
+        prompt[NODES['clip_skip']]["inputs"]["stop_at_clip_layer"] = -context.scene.clip_skip
+        
+        # Set the model name
+        prompt[NODES['checkpoint']]["inputs"]["ckpt_name"] = context.scene.model_name
+
+        # Build LoRA chain
+        initial_model_input_lora = [NODES['checkpoint'], 0]
+        initial_clip_input_lora = [NODES['checkpoint'], 1]
+
+        prompt, final_lora_model_out, final_lora_clip_out = self._build_lora_chain(
+            prompt, context,
+            initial_model_input_lora, initial_clip_input_lora,
+            start_node_id=400 # Starting node ID for LoRA chain
+        )
+
+        current_model_out = final_lora_model_out
+
+        # Set the input for the clip skip node
+        prompt[NODES['clip_skip']]["inputs"]["clip"] = final_lora_clip_out
+
+        # If using IPAdapter, set the model input
+        if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self.operator._current_image > 0):
+            # Set the model input for IPAdapter
+            prompt[NODES['ipadapter_loader']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['ipadapter'], 0]
+
+        # Set the model for sampler node
+        prompt[NODES['sampler']]["inputs"]["model"] = current_model_out
+
+        return prompt, NODES
+
+    def _configure_resolution(self, prompt, context, NODES):
+        """Sets the generation resolution based on mode."""
+        if context.scene.generation_method == 'grid':
+            # Use the resolution of the grid image
+            prompt[NODES['latent']]["inputs"]["width"] = self._grid_width
+            prompt[NODES['latent']]["inputs"]["height"] = self._grid_height
+        else:
+            # Use current render resolution
+            prompt[NODES['latent']]["inputs"]["width"] = context.scene.render.resolution_x
+            prompt[NODES['latent']]["inputs"]["height"] = context.scene.render.resolution_y
+
+    def _configure_ipadapter(self, prompt, context, ipadapter_ref_info, NODES):
+        # Configure IPAdapter if enabled
+        
+        # Connect IPAdapter output to the appropriate node
+        prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        
+        # Set IPAdapter image source
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
+
+        # Connect ipadapter image to the input
+        prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
+        
+        # Configure IPAdapter settings
+        prompt[NODES['ipadapter']]["inputs"]["weight"] = context.scene.ipadapter_strength
+        prompt[NODES['ipadapter']]["inputs"]["start_at"] = context.scene.ipadapter_start
+        prompt[NODES['ipadapter']]["inputs"]["end_at"] = context.scene.ipadapter_end
+        
+        # Set weight type
+        weight_type_mapping = {
+            'standard': "standard",
+            'prompt': "prompt is more important",
+            'style': "style transfer"
+        }
+        prompt[NODES['ipadapter']]["inputs"]["weight_type"] = weight_type_mapping.get(context.scene.ipadapter_weight_type, "standard")
+
+    def _build_controlnet_chain_extended(self, context, base_prompt, pos_input, neg_input, vae_input, controlnet_info_dict):
+        """
+        Builds a chain of ControlNet units dynamically based on scene settings.
+
+        Args:
+            context: Blender context, used to access addon preferences and scene data.
+            base_prompt (dict): The ComfyUI prompt dictionary to be modified.
+            pos_input (list): The [node_id, output_idx] for the initial positive conditioning.
+            neg_input (list): The [node_id, output_idx] for the initial negative conditioning.
+            vae_input (list): The [node_id, output_idx] for the VAE, used by ControlNetApplyAdvanced.
+                                Typically, this is [checkpoint_node_id, 2] for SDXL or 
+                                [checkpoint_node_id, 0] for some VAE loaders.
+            controlnet_info_dict (dict): A dictionary mapping ControlNet types (e.g., "depth", 
+                                "canny") to their corresponding uploaded image info.
+
+        Returns:
+            tuple: (modified_prompt, final_positive_conditioning, final_negative_conditioning)
+        """
+        addon_prefs = context.preferences.addons[__package__].preferences
+        try:
+            mapping = json.loads(addon_prefs.controlnet_mapping)
+        except Exception:
+            mapping = {}
+        
+        # Get the dynamic collection of ControlNet units
+        controlnet_units = getattr(context.scene, "controlnet_units", [])
+        current_pos = pos_input
+        current_neg = neg_input
+        has_union = False
+        for idx, unit in enumerate(controlnet_units):
+            # Get uploaded info for this unit's type
+            uploaded_info = controlnet_info_dict.get(unit.unit_type)
+            if not uploaded_info:
+                print(f"Warning: Uploaded info for ControlNet type '{unit.unit_type}' not found. Skipping unit.")
+                continue # Skip this unit
+
+            # Generate unique keys for nodes in this chain unit.
+            load_key = str(200 + idx * 3)       # LoadImage node
+            loader_key = str(200 + idx * 3 + 1)   # ControlNetLoader node
+            apply_key = str(200 + idx * 3 + 2)    # ControlNetApplyAdvanced node
+
+            # Create the LoadImage node.
+            base_prompt[load_key] = {
+                "inputs": {
+                    "image": uploaded_info['name'],
+                },
+                "class_type": "LoadImage",
+                "_meta": {
+                    "title": f"Load Image ({unit.unit_type})"
+                }
+            }
+            # Create the ControlNetLoader node.
+            base_prompt[loader_key] = {
+                "inputs": {
+                    "control_net_name": unit.model_name  # updated to use selected property
+                },
+                "class_type": "ControlNetLoader",
+                "_meta": {
+                    "title": f"Load ControlNet ({unit.unit_type})"
+                }
+            }
+            # Create the ControlNetApplyAdvanced node.
+            base_prompt[apply_key] = {
+                "inputs": {
+                    "strength": unit.strength,
+                    "start_percent": unit.start_percent,
+                    "end_percent": unit.end_percent,
+                    "positive": [current_pos, 0],
+                    "negative": [current_neg, 1] if (idx > 0 or current_neg == "228" or current_neg == "51") else [current_neg, 0],
+                    "control_net": [loader_key, 0],
+                    "image": [load_key, 0],
+                    "vae": [vae_input, 2] if context.scene.model_architecture == "sdxl" else [vae_input, 0],
+                },
+                "class_type": "ControlNetApplyAdvanced",
+                "_meta": {
+                    "title": f"Apply ControlNet ({unit.unit_type})"
+                }
+            }
+            # Update chain inputs: the output of this apply node becomes the new input.
+            current_pos = apply_key
+            current_neg = apply_key
+            # If the controlnet is of the union type, connect the ControlNetApplyAdvanced input into the SetUnionControlNetType node (239)
+            if unit.is_union and unit.use_union_type: 
+                base_prompt[apply_key]["inputs"]["control_net"] = ["239", 0]
+                base_prompt["239"]["inputs"]["control_net"] = [loader_key, 0]
+                if unit.unit_type == "depth":
+                    base_prompt["239"]["inputs"]["type"] = "depth" 
+                elif unit.unit_type == "canny":
+                    base_prompt["239"]["inputs"]["type"] = "canny/lineart/anime_lineart/mlsd"
+                elif unit.unit_type == "normal":
+                    base_prompt["239"]["inputs"]["type"] = "normal"
+                has_union = True
+        if not has_union:
+            # Remove the node
+            if "239" in base_prompt:
+                del base_prompt["239"]
+
+        return base_prompt, current_pos
+
+    def _build_lora_chain(self, prompt, context, initial_model_input, initial_clip_input, start_node_id=300):
+        """
+        Builds a chain of LoRA loaders dynamically.
+
+        Args:
+            prompt (dict): The ComfyUI prompt dictionary to modify.
+            context: Blender context.
+            initial_model_input (list): The [node_id, output_idx] for the initial model.
+            initial_clip_input (list): The [node_id, output_idx] for the initial CLIP.
+            start_node_id (int): The starting integer for generating unique LoRA node IDs.
+
+        Returns:
+            tuple: (modified_prompt, final_model_output, final_clip_output)
+            
+            The final model and CLIP outputs are [node_id, output_idx] lists.
+        """
+        scene = context.scene
+        
+        current_model_out = initial_model_input
+        current_clip_out = initial_clip_input
+
+        if not scene.lora_units:
+            return prompt, current_model_out, current_clip_out
+
+        for i, lora_unit in enumerate(scene.lora_units):
+            if not lora_unit.model_name or lora_unit.model_name == "NONE":
+                continue # Skip if no LoRA model is selected for this unit
+
+            lora_node_id_str = str(start_node_id + i)
+            
+            prompt[lora_node_id_str] = {
+                "inputs": {
+                    "lora_name": lora_unit.model_name,
+                    "strength_model": lora_unit.model_strength,
+                    "strength_clip": lora_unit.clip_strength,
+                    "model": current_model_out, # Connect to previous LoRA or initial model
+                    "clip": current_clip_out    # Connect to previous LoRA or initial CLIP
+                },
+                "class_type": "LoraLoader",
+                "_meta": {
+                    "title": f"Load LoRA {i+1} ({lora_unit.model_name[:20]})"
+                }
+            }
+            # Update outputs for the next LoRA in the chain
+            current_model_out = [lora_node_id_str, 0]
+            current_clip_out = [lora_node_id_str, 1]
+            
+        return prompt, current_model_out, current_clip_out
+
+    def _build_controlnet_chain(self, prompt, context, controlnet_info, NODES):
+        """Builds the ControlNet processing chain."""
+        # Build controlnet chain with guidance images
+        prompt, final_node = self._build_controlnet_chain_extended(
+            context, prompt, NODES['pos_prompt'], NODES['neg_prompt'], NODES['checkpoint'],
+            controlnet_info
+        )
+        
+        # Connect final node outputs to the KSampler
+        prompt[NODES['sampler']]["inputs"]["positive"] = [final_node, 0]
+        prompt[NODES['sampler']]["inputs"]["negative"] = [final_node, 1]
+        
+        return prompt
+
+    def _save_prompt_to_file(self, prompt, output_dir):
+        """Saves the prompt to a file for debugging."""
+        try:
+            with open(os.path.join(output_dir, "prompt.json"), 'w') as f:
+                json.dump(prompt, f, indent=2)  # Added indent for better readability
+        except Exception as e:
+            print(f"Failed to save prompt to file: {str(e)}")
+
+    def _connect_to_websocket(self, server_address, client_id):
+        """Establishes WebSocket connection to ComfyUI server."""
+        try:
+            ws = websocket.WebSocket()
+            ws.connect(f"ws://{server_address}/ws?clientId={client_id}")
+            return ws
+        except ConnectionRefusedError:
+            self._error = f"Connection to ComfyUI WebSocket was refused at {server_address}. Is ComfyUI running and accessible?"
+            return None
+        except (socket.gaierror, websocket.WebSocketAddressException): # Catch getaddrinfo errors specifically
+            self._error = f"Could not resolve ComfyUI server address: '{server_address}'. Please check the hostname/IP and port in preferences and your network settings."
+            return None
+        except websocket.WebSocketTimeoutException:
+            self._error = f"Connection to ComfyUI WebSocket timed out at {server_address}."
+            return None
+        except websocket.WebSocketBadStatusException as e: # More specific catch for handshake errors
+            # e.status_code will be 404 in this case
+            if e.status_code == 404:
+                self._error = (f"ComfyUI endpoint not found at {server_address} (404 Not Found).")
+            else:
+                self._error = (f"WebSocket handshake failed with ComfyUI server at {server_address}. "
+                            f"Status: {e.status_code}. The server might not be a ComfyUI instance or is misconfigured.")
+            return None
+        except Exception as e: # Catch-all for truly unexpected issues during connect
+            self._error = f"An unexpected error occurred connecting WebSocket: {e}"
+            return None
+
+    def _execute_prompt_and_get_images(self, ws, prompt, client_id, server_address, NODES):
+        """Executes the prompt and collects generated images."""
+        # Send the prompt to the queue
+        prompt_id = self._queue_prompt(prompt, client_id, server_address)
+        
+        # Process the WebSocket messages and collect images
+        output_images = {}
+        current_node = ""
+        
+        while True:
+            out = ws.recv()
+            if isinstance(out, str):
+                message = json.loads(out)
+                
+                if message['type'] == 'executing':
+                    data = message['data']
+                    if data['prompt_id'] == prompt_id:
+                        if data['node'] is None:
+                            break  # Execution is complete
+                        else:
+                            current_node = data['node']
+                            print(f"Executing node: {current_node}")
+                            
+                elif message['type'] == 'progress':
+                    progress = (message['data']['value'] / message['data']['max']) * 100
+                    if progress != 0:
+                        self._progress = progress  # Update progress for UI
+                        print(f"Progress: {progress:.1f}%")
+            else:
+                # Binary data (image)
+                if current_node == NODES['save_image']:  # SaveImageWebsocket node
+                    print("Receiving generated image")
+                    images_output = output_images.get(current_node, [])
+                    images_output.append(out[8:])  # Skip the first 8 bytes (header)
+                    output_images[current_node] = images_output
+        
+        return output_images
+
+    def _queue_prompt(self, prompt, client_id, server_address):
+        """Queues the prompt for processing by ComfyUI."""
+        try:
+            data = json.dumps({
+                "prompt": prompt,
+                "client_id": client_id
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(f"http://{server_address}/prompt", data=data)
+            response = json.loads(urllib.request.urlopen(req).read())
+            
+            return response['prompt_id']
+        except Exception as e:
+            print(f"Failed to queue prompt: {str(e)}")
+            raise
+
+    def refine(self, context, controlnet_info=None, mask_info=None, render_info=None, ipadapter_ref_info=None):
+        """     
+        Refines the image using ComfyUI.         
+        :param context: Blender context.         
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param mask_info: Uploaded mask image info.
+        :param render_info: Uploaded render image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
+        :return: Refined image.     
+        """
+        # Setup connection parameters
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        # Initialize the img2img prompt template and configure base settings
+        prompt, NODES = self._create_img2img_base_prompt(context)
+        
+        # Configure based on generation method
+        self._configure_refinement_mode(prompt, context, render_info, mask_info, NODES)
+
+        if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
+            # Configure IPAdapter settings
+            self._configure_ipadapter_refine(prompt, context, ipadapter_ref_info, NODES)
+        else:
+            # Remove IPAdapter nodes if not used
+            for node_id in ["235", "236", "237"]:
+                if node_id in prompt:
+                    del prompt[node_id]
+        
+        # Set up image inputs for different controlnet types
+        self._refine_configure_images(prompt, render_info, NODES)
+        
+        # Build controlnet chain for refinement if needed
+        if not context.scene.generation_method == 'uv_inpaint':
+            prompt = self._refine_build_controlnet_chain(prompt, context, controlnet_info, NODES)
+        else:
+            if context.scene.differential_diffusion:
+                prompt[NODES['sampler']]["inputs"]["positive"] = [NODES['inpaint_conditioning'], 0]
+                prompt[NODES['sampler']]["inputs"]["negative"] = [NODES['inpaint_conditioning'], 1]
+            else:
+                prompt[NODES['sampler']]["inputs"]["positive"] = [NODES['pos_prompt'], 0]
+                prompt[NODES['sampler']]["inputs"]["negative"] = [NODES['neg_prompt'], 0]
+        
+        # Save prompt for debugging
+        with open(os.path.join(output_dir, "prompt.json"), 'w') as f:
+            json.dump(prompt, f)
+        
+        # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
+        
+        print(f"Image refined with prompt: {context.scene.refine_prompt if context.scene.refine_prompt else context.scene.comfyui_prompt}")
+        
+        # Return the refined image
+        return images[NODES['save_image']][0]
+
+    def _create_img2img_base_prompt(self, context):
+        """Creates and configures the base prompt for img2img refinement."""
+        from .util.helpers import prompt_text_img2img
+        
+        prompt = json.loads(prompt_text_img2img)
+        
+        # Node IDs organized by functional category
+        NODES = {
+            # Text Prompting
+            'pos_prompt': "102",
+            'neg_prompt': "103",
+            'clip_skip': "247",
+            
+            # Sampling Control
+            'sampler': "105",
+            
+            # Model Loading
+            'checkpoint': "38",
+            
+            # Image Processing
+            'upscale_grid': "118",
+            'upscale_uv': "23",
+            'vae_encode': "116",
+            'vae_encode_inpaint': "13",
+            'inpaint_conditioning': "228",
+            
+            # Input Images
+            'input_image': "1",
+            'mask_image': "12",
+            'render_image': "117",
+            
+            # Mask Processing
+            'grow_mask': "224",
+            'blur': "226",
+            'image_to_mask': "227",
+            
+            # Advanced Features
+            'differential_diffusion': "229",
+            'ipadapter_loader': "235",
+            'ipadapter': "236",
+            'ipadapter_image': "237",
+            
+            # Output
+            'save_image': "111"
+        }
+        
+        base_prompt_text = context.scene.comfyui_prompt
+        # Camera Prompt Injection
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine', 'grid'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+            current_camera_name = self.operator._cameras[self.operator._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                base_prompt_text = f"{view_desc}, {base_prompt_text}"
+        
+        # Set positive prompt based on generation method
+        if context.scene.generation_method in ['refine', 'uv_inpaint', 'sequential']:
+            prompt[NODES['pos_prompt']]["inputs"]["text"] = base_prompt_text
+        else:
+            prompt[NODES['pos_prompt']]["inputs"]["text"] = context.scene.refine_prompt if context.scene.refine_prompt != "" else context.scene.comfyui_prompt
+        
+        # Set negative prompt
+        prompt[NODES['neg_prompt']]["inputs"]["text"] = context.scene.comfyui_negative_prompt
+        
+        # Set sampling parameters
+        prompt[NODES['sampler']]["inputs"]["seed"] = context.scene.seed
+        prompt[NODES['sampler']]["inputs"]["steps"] = context.scene.refine_steps if context.scene.generation_method == 'grid' else context.scene.steps
+        prompt[NODES['sampler']]["inputs"]["cfg"] = context.scene.refine_cfg if context.scene.generation_method == 'grid' else context.scene.cfg
+        prompt[NODES['sampler']]["inputs"]["sampler_name"] = context.scene.refine_sampler if context.scene.generation_method == 'grid' else context.scene.sampler
+        prompt[NODES['sampler']]["inputs"]["scheduler"] = context.scene.refine_scheduler if context.scene.generation_method == 'grid' else context.scene.scheduler
+        if context.scene.generation_method == 'grid' or context.scene.generation_method == 'refine':
+            prompt[NODES['sampler']]["inputs"]["denoise"] = context.scene.denoise
+        else:
+            prompt[NODES['sampler']]["inputs"]["denoise"] = 1.0
+        
+        # Set clip skip
+        prompt[NODES['clip_skip']]["inputs"]["stop_at_clip_layer"] = -context.scene.clip_skip
+        
+        # Set upscale method and dimensions
+        prompt[NODES['upscale_grid']]["inputs"]["upscale_method"] = context.scene.refine_upscale_method
+        prompt[NODES['upscale_grid']]["inputs"]["width"] = context.scene.render.resolution_x
+        prompt[NODES['upscale_grid']]["inputs"]["height"] = context.scene.render.resolution_y
+        prompt[NODES['upscale_uv']]["inputs"]["upscale_method"] = "nearest-exact"
+        prompt[NODES['upscale_uv']]["inputs"]["width"] = 1024
+        prompt[NODES['upscale_uv']]["inputs"]["height"] = 1024
+
+        # Set the model name
+        prompt[NODES['checkpoint']]["inputs"]["ckpt_name"] = context.scene.model_name
+        
+        # Build LoRA chain
+        initial_model_input_lora = [NODES['checkpoint'], 0]
+        initial_clip_input_lora = [NODES['checkpoint'], 1]
+
+        prompt, final_lora_model_out, final_lora_clip_out = self._build_lora_chain(
+            prompt, context,
+            initial_model_input_lora, initial_clip_input_lora,
+            start_node_id=400 # Starting node ID for LoRA chain
+        )
+
+        current_model_out = final_lora_model_out
+
+        # Set the input for the clip skip node
+        prompt[NODES['clip_skip']]["inputs"]["clip"] = final_lora_clip_out
+
+        # If using IPAdapter, set the model input
+        if (context.scene.use_ipadapter or (context.scene.sequential_ipadapter and self.operator._current_image > 0)) and context.scene.generation_method != 'uv_inpaint':
+            # Set the model input for IPAdapter
+            prompt[NODES['ipadapter_loader']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['ipadapter'], 0]
+
+        if context.scene.differential_diffusion and NODES['differential_diffusion'] in prompt and not context.scene.generation_method == 'refine':
+            # Set model input for differential diffusion
+            prompt[NODES['differential_diffusion']]["inputs"]["model"] = current_model_out
+            current_model_out = [NODES['differential_diffusion'], 0]
+
+        # Set the model for sampler node
+        prompt[NODES['sampler']]["inputs"]["model"] = current_model_out
+
+        return prompt, NODES
+
+    def _configure_refinement_mode(self, prompt, context, render_info, mask_info, NODES):
+        """Configures the prompt based on the specific refinement mode."""
+        # Configure based on generation method
+        if context.scene.generation_method == 'refine':
+            prompt[NODES['vae_encode']]["inputs"]["pixels"] = [NODES['render_image'], 0]  # Use render directly
+        
+        elif context.scene.generation_method == 'uv_inpaint' or context.scene.generation_method == 'sequential':
+            # Connect latent to KSampler
+            prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['vae_encode_inpaint'], 0] if not context.scene.differential_diffusion else [NODES['inpaint_conditioning'], 2]
+            
+            # Configure differential diffusion if enabled
+            if context.scene.differential_diffusion:
+                prompt[NODES['sampler']]["inputs"]["model"] = [NODES['differential_diffusion'], 0]
+            
+            # Configure mask settings
+            prompt[NODES['mask_image']]["inputs"]["image"] = mask_info['name']
+            prompt[NODES['input_image']]["inputs"]["image"] = render_info['name']
+            
+            # Configure mask blur settings
+            if not context.scene.blur_mask:
+                prompt[NODES['inpaint_conditioning']]["inputs"]["mask"] = [NODES['grow_mask'], 0]  # Direct connection
+                prompt[NODES['vae_encode_inpaint']]["inputs"]["mask"] = [NODES['grow_mask'], 0]   # Direct connection
+            
+            # Set blur parameters
+            prompt[NODES['blur']]["inputs"]["sigma"] = context.scene.blur_mask_sigma
+            prompt[NODES['blur']]["inputs"]["blur_radius"] = context.scene.blur_mask_radius
+            
+            # Set grow mask parameter
+            prompt[NODES['grow_mask']]["inputs"]["expand"] = context.scene.grow_mask_by
+            
+            if context.scene.generation_method == 'uv_inpaint':
+                # Configure UV inpainting specific prompts
+                self._configure_uv_inpainting_mode(prompt, context, render_info, NODES)
+            else:  # Sequential mode
+                # Configure sequential mode settings
+                self._configure_sequential_mode(prompt, context, NODES)
+
+    def _configure_uv_inpainting_mode(self, prompt, context, render_info, NODES):
+        """Configures the prompts for UV inpainting mode."""
+        # Connect upscale to VAE / InpaintConditioning
+        if not context.scene.differential_diffusion:
+            prompt[NODES['vae_encode_inpaint']]["inputs"]["pixels"] = [NODES['upscale_uv'], 0]
+        else:
+            prompt[NODES['inpaint_conditioning']]["inputs"]["pixels"] = [NODES['upscale_uv'], 0]
+            # Set the noise_mask flag according to context.scene.differential_noise
+            prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
+
+        # Create base UV prompt
+        uv_prompt = f"seamless (UV-unwrapped texture) of {context.scene.comfyui_prompt}, consistent material continuity, no visible seams or stretching, PBR material properties"
+        uv_prompt_neg = f"seam, stitch, visible edge, texture stretching, repeating pattern, {context.scene.comfyui_negative_prompt}"
+        
+        prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
+        prompt[NODES['neg_prompt']]["inputs"]["text"] = uv_prompt_neg
+        
+        # Get the current object name from the file path
+        if render_info and 'name' in render_info:
+            current_object_name = os.path.basename(render_info['name']).split('.')[0]
+        
+        # Use the object-specific prompt if available
+        object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
+        if object_prompt:
+            uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching, PBR material properties"
+            uv_prompt_neg = f"seam, stitch, visible edge, texture stretching, repeating pattern, {context.scene.comfyui_negative_prompt}"
+            prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
+            prompt[NODES['neg_prompt']]["inputs"]["text"] = uv_prompt_neg
+
+    def _configure_ipadapter_refine(self, prompt, context, ipadapter_ref_info, NODES):
+        """Configures IPAdapter settings for refinement mode."""
+        # Connect IPAdapter output to the appropriate node
+        if context.scene.differential_diffusion and context.scene.generation_method != 'refine':
+            prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        else:
+            prompt[NODES['sampler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        
+        # Set IPAdapter image source
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
+        
+        
+        # Connect ipadapter image to the input
+        prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
+        
+        # Configure IPAdapter settings
+        prompt[NODES['ipadapter']]["inputs"]["weight"] = context.scene.ipadapter_strength
+        prompt[NODES['ipadapter']]["inputs"]["start_at"] = context.scene.ipadapter_start
+        prompt[NODES['ipadapter']]["inputs"]["end_at"] = context.scene.ipadapter_end
+        
+        # Set weight type
+        weight_type_mapping = {
+            'standard': "standard",
+            'prompt': "prompt is more important",
+            'style': "style transfer"
+        }
+        prompt[NODES['ipadapter']]["inputs"]["weight_type"] = weight_type_mapping.get(context.scene.ipadapter_weight_type, "standard")
+
+    def _configure_sequential_mode(self, prompt, context, NODES):
+        """Configures the prompt for sequential generation mode."""
+        # Connect image directly to VAE
+        prompt[NODES['vae_encode_inpaint']]["inputs"]["pixels"] = [NODES['input_image'], 0]
+        if context.scene.differential_diffusion:
+            # Set the noise_mask flag according to context.scene.differential_noise
+            prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
+
+    def _refine_configure_images(self, prompt, render_info, NODES):
+        """Configures the input images for the refinement process."""
+        # Set render image
+        if render_info:
+            prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
+
+    def _refine_build_controlnet_chain(self, prompt, context, controlnet_info, NODES):
+        """Builds the ControlNet chain for refinement process."""
+        # Determine inputs for ControlNet chain
+        pos_input = NODES['pos_prompt'] if (not context.scene.differential_diffusion or 
+                                context.scene.generation_method in ["grid", "refine"]) else NODES['inpaint_conditioning']
+        neg_input = NODES['neg_prompt'] if (not context.scene.differential_diffusion or 
+                                context.scene.generation_method in ["grid", "refine"]) else NODES['inpaint_conditioning']
+        vae_input = NODES['checkpoint']
+        
+        # Build the ControlNet chain
+        prompt, final = self._build_controlnet_chain_extended(
+            context, prompt, pos_input, neg_input, vae_input, 
+            controlnet_info
+        )
+        
+        # Connect final outputs to KSampler
+        prompt[NODES['sampler']]["inputs"]["positive"] = [final, 0]
+        prompt[NODES['sampler']]["inputs"]["negative"] = [final, 1]
+        
+        return prompt
+
+    def create_base_prompt_flux(self, context):
+        """Creates and configures the base Flux prompt.
+        Uses prompt_text_flux and does not include negative prompt or LoRA configuration.
+        """
+        from .util.helpers import prompt_text_flux
+        prompt = json.loads(prompt_text_flux)
+        # Define node IDs for Flux
+        NODES = {
+            'pos_prompt': "6",          # CLIPTextEncode for positive prompt
+            'vae_loader': "10",         # VAELoader
+            'dual_clip': "11",          # DualCLIPLoader
+            'unet_loader': "12",        # UNETLoader
+            'sampler': "13",            # SamplerCustomAdvanced
+            'ksampler': "16",           # KSamplerSelect
+            'scheduler': "17",          # BasicScheduler
+            'guider': "22",             # BasicGuider
+            'noise': "25",              # RandomNoise
+            'flux_guidance': "26",      # FluxGuidance
+            'latent': "30",             # EmptyLatentImage
+            'save_image': "32"          # SaveImageWebsocket
+        }
+        
+        base_prompt_text = context.scene.comfyui_prompt
+        # Camera Prompt Injection
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+            current_camera_name = self.operator._cameras[self.operator._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                base_prompt_text = f"{view_desc}, {base_prompt_text}"
+        
+        # Set positive prompt only (Flux doesn't use negative prompt)
+        prompt[NODES['pos_prompt']]["inputs"]["text"] = base_prompt_text
+        
+        # Configure sampler parameters
+        prompt[NODES['noise']]["inputs"]["noise_seed"] = context.scene.seed
+        prompt[NODES['scheduler']]["inputs"]["steps"] = context.scene.steps
+        prompt[NODES['scheduler']]["inputs"]["scheduler"] = context.scene.scheduler
+        prompt[NODES['flux_guidance']]["inputs"]["guidance"] = context.scene.cfg
+        prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.sampler
+
+        # Replace unet_loader with UNETLoaderGGUF if using GGUF model
+        if ".gguf" in context.scene.model_name:
+            del prompt[NODES['unet_loader']]
+            from .util.helpers import gguf_unet_loader
+            unet_loader_dict = json.loads(gguf_unet_loader)
+            prompt.update(unet_loader_dict)
+
+        # Set the model name
+        prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
+
+        # Flux does not use negative prompt or LoRA.
+        return prompt, NODES
+
+    def configure_ipadapter_flux(self, prompt, context, ipadapter_ref_info, NODES):
+        # Configure IPAdapter if enabled
+        from .util.helpers import ipadapter_flux
+        ipadapter_dict = json.loads(ipadapter_flux)
+        prompt.update(ipadapter_dict)
+        
+        # Label nodes
+        NODES['ipadapter_loader'] = "242"  # IPAdapterFluxLoader
+        NODES['ipadapter'] = "243"          # ApplyIPAdapterFlux
+        NODES['ipadapter_image'] = "244"    # LoadImage for IPAdapter input
+        
+        # Connect IPAdapter output to guider and scheduler
+        prompt[NODES['guider']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+        
+        # Set IPAdapter image source
+        prompt[NODES['ipadapter_image']]["inputs"]["image"] = ipadapter_ref_info['name']
+
+        # Connect ipadapter image to the input
+        prompt[NODES['ipadapter']]["inputs"]["image"] = [NODES['ipadapter_image'], 0]
+        
+        # Configure IPAdapter settings
+        prompt[NODES['ipadapter']]["inputs"]["weight"] = context.scene.ipadapter_strength
+        prompt[NODES['ipadapter']]["inputs"]["start_percent"] = context.scene.ipadapter_start
+        prompt[NODES['ipadapter']]["inputs"]["end_percent"] = context.scene.ipadapter_end
+        
+        # There is no weight type for Flux IPAdapter
+        
+    def generate_flux(self, context, controlnet_info=None, ipadapter_ref_info=None):
+        """Generates an image using Flux 1.
+        Similar in structure to generate() but uses Flux nodes, skips negative prompt and LoRA.
+        """
+        from .util.helpers import prompt_text_flux
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        # Build Flux base prompt and node mapping.
+        prompt, NODES = self.create_base_prompt_flux(context)
+        
+        self._configure_resolution(prompt, context, NODES)
+        
+        # Configure IPAdapter for Flux if enabled
+        if ipadapter_ref_info:
+            self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
+
+        # Build ControlNet chain if not using Depth LoRA
+        if not context.scene.use_flux_lora:
+            prompt, final_node = self._build_controlnet_chain_extended(
+                context, prompt, NODES['pos_prompt'], NODES['pos_prompt'], NODES['vae_loader'],
+                controlnet_info
+            )
+        else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
+            final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
+            # Add Required nodes for the FLUX.1-Depth-dev LoRA
+            from .util.helpers import depth_lora_flux
+            depth_lora_dict = json.loads(depth_lora_flux)
+            prompt.update(depth_lora_dict)
+
+            # Label nodes
+            NODES['flux_lora_image'] = "245"  # LoadImage
+            NODES['instruct_pix'] = "246"  # InstructPixToPixConditioning
+            NODES['flux_lora'] = "247"  # LoraLoaderModelOnly
+
+            # Connect nodes 
+            final_node = NODES['instruct_pix'] # To be connected to flux_guidance
+            prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['instruct_pix'], 2]
+
+            # If using ipadapter, set the apply_ipadapter_flux node to use the flux_lora_image
+            if context.scene.use_ipadapter or (context.scene.generation_method == 'separate' and context.scene.sequential_ipadapter and self.operator._current_image > 0):
+                prompt[NODES['ipadapter']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+            else:
+                prompt[NODES['guider']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+
+            # Delete unnecessary nodes
+            if "239" in prompt:
+                del prompt["239"] # SetUnionControlNetType
+            if "30" in prompt:
+                del prompt["30"] # EmptyLatentImage
+
+            if controlnet_info and "depth" in controlnet_info:
+                prompt[NODES['flux_lora_image']]["inputs"]["image"] = controlnet_info["depth"]['name']
+
+        # Connect final node to FluxGuidance
+        prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
+        # Note: No negative prompt is connected.
+
+        # Save prompt for debugging.
+        self._save_prompt_to_file(prompt,  revision_dir)
+
+        # Execute generation via websocket.
+        # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
+        
+        print(f"Flux image generated with prompt: {context.scene.comfyui_prompt}")
+
+        return images[NODES['save_image']][0]
+
+    def _create_img2img_base_prompt_flux(self, context):
+        """Creates and configures the base Flux prompt for img2img refinement."""
+        from .util.helpers import prompt_text_img2img_flux
+        
+        prompt = json.loads(prompt_text_img2img_flux)
+        
+        # Node IDs organized by functional category for Flux
+        NODES = {
+            # Text Prompting
+            'pos_prompt': "6",          # CLIPTextEncode for positive prompt
+            
+            # Model Components
+            'vae_loader': "10",         # VAELoader
+            'dual_clip': "11",          # DualCLIPLoader
+            'unet_loader': "12",        # UNETLoader
+            
+            # Sampling Control
+            'sampler': "13",            # SamplerCustomAdvanced
+            'ksampler': "16",           # KSamplerSelect
+            'scheduler': "17",          # BasicScheduler
+            'guider': "22",             # BasicGuider
+            'noise': "25",              # RandomNoise
+            'flux_guidance': "26",      # FluxGuidance
+            
+            # Image Processing
+            'vae_decode': "8",          # VAEDecode
+            'vae_encode': "116",        # VAEEncode
+            'vae_encode_inpaint': "44", # VAEEncodeForInpaint
+            'upscale': "118",           # ImageScale for upscaling
+            'upscale_uv': "43",         # ImageScale for UV maps
+            
+            # Input Images
+            'input_image': "1",         # LoadImage for input
+            'mask_image': "42",         # LoadImage for mask
+            'render_image': "117",      # LoadImage for render
+            
+            # Mask Processing
+            'grow_mask': "224",         # GrowMask
+            'blur': "226",              # ImageBlur
+            'image_to_mask': "227",     # ImageToMask
+            'mask_to_image': "225",     # MaskToImage
+            
+            # Advanced Features
+            'differential_diffusion': "50", # DifferentialDiffusion for Flux
+            'inpaint_conditioning': "51",   # InpaintModelConditioning for Flux
+            
+            # Latent Space
+            'latent': "30",             # EmptyLatentImage
+            
+            # Output
+            'save_image': "32"          # SaveImageWebsocket
+        }
+        
+        base_prompt_text = context.scene.comfyui_prompt
+        # Camera Prompt Injection
+        if context.scene.use_camera_prompts and context.scene.generation_method in ['separate', 'sequential', 'refine', 'grid'] and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
+            current_camera_name = self.operator._cameras[self.operator._current_image].name
+            # Find the prompt in the collection
+            prompt_item = next((item for item in context.scene.camera_prompts if item.name == current_camera_name), None)
+            if prompt_item and prompt_item.prompt:
+                view_desc = prompt_item.prompt
+                # Prepend the view description
+                base_prompt_text = f"{view_desc}, {base_prompt_text}"
+        
+        # Set positive prompt (Flux doesn't use negative prompt)
+        prompt[NODES['pos_prompt']]["inputs"]["text"] = base_prompt_text
+        
+        # Configure sampler parameters
+        prompt[NODES['noise']]["inputs"]["noise_seed"] = context.scene.seed
+        prompt[NODES['scheduler']]["inputs"]["steps"] = context.scene.refine_steps if context.scene.generation_method == 'grid' else context.scene.steps
+        prompt[NODES['scheduler']]["inputs"]["denoise"] = context.scene.denoise if context.scene.generation_method in ['grid', 'refine'] else 1.0
+        prompt[NODES['flux_guidance']]["inputs"]["guidance"] = context.scene.refine_cfg if context.scene.generation_method == 'grid' else context.scene.cfg
+        prompt[NODES['ksampler']]["inputs"]["sampler_name"] = context.scene.refine_sampler if context.scene.generation_method == 'grid' else context.scene.sampler
+        prompt[NODES['scheduler']]["inputs"]["scheduler"] = context.scene.refine_scheduler if context.scene.generation_method == 'grid' else context.scene.scheduler
+
+        # Replace unet_loader with UNETLoaderGGUF if using GGUF model
+        if ".gguf" in context.scene.model_name:
+            del prompt[NODES['unet_loader']]
+            from .util.helpers import gguf_unet_loader
+            unet_loader_dict = json.loads(gguf_unet_loader)
+            prompt.update(unet_loader_dict)
+
+        # Set the model name
+        prompt[NODES['unet_loader']]["inputs"]["unet_name"] = context.scene.model_name
+        
+        # Configure upscale settings
+        prompt[NODES['upscale']]["inputs"]["upscale_method"] = context.scene.refine_upscale_method
+        prompt[NODES['upscale']]["inputs"]["width"] = context.scene.render.resolution_x
+        prompt[NODES['upscale']]["inputs"]["height"] = context.scene.render.resolution_y
+        
+        # Configure UV upscale settings
+        prompt[NODES['upscale_uv']]["inputs"]["upscale_method"] = "nearest-exact"
+        prompt[NODES['upscale_uv']]["inputs"]["width"] = 1024
+        prompt[NODES['upscale_uv']]["inputs"]["height"] = 1024
+        
+        # Configure mask settings
+        prompt[NODES['grow_mask']]["inputs"]["expand"] = context.scene.grow_mask_by
+        prompt[NODES['blur']]["inputs"]["blur_radius"] = context.scene.blur_mask_radius
+        prompt[NODES['blur']]["inputs"]["sigma"] = context.scene.blur_mask_sigma
+        
+        return prompt, NODES
+
+    def refine_flux(self, context, controlnet_info=None, mask_info=None, render_info=None, ipadapter_ref_info=None):
+        """     
+        Refines the image using Flux 1 in ComfyUI.         
+        :param context: Blender context.         
+        :param controlnet_info: Dict of uploaded controlnet image info.
+        :param mask_info: Uploaded mask image info.
+        :param render_info: Uploaded render image info.
+        :param ipadapter_ref_info: Uploaded IPAdapter reference image info.
+        :return: Refined image.     
+        """
+        # Setup connection parameters
+        server_address = context.preferences.addons[__package__].preferences.server_address
+        client_id = str(uuid.uuid4())
+        output_dir = context.preferences.addons[__package__].preferences.output_dir
+
+        revision_dir = get_generation_dirs(context)["revision"]
+
+        # Initialize the img2img prompt template for Flux
+        prompt, NODES = self._create_img2img_base_prompt_flux(context)
+        
+        # Configure IPAdapter for Flux if enabled
+        if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
+            self.configure_ipadapter_flux(prompt, context, ipadapter_ref_info, NODES)
+        
+        # Configure based on generation method
+        self._configure_refinement_mode_flux(prompt, context, render_info, mask_info, ipadapter_ref_info, NODES)
+        
+        # Set up image inputs for different controlnet types
+        self._refine_configure_images_flux(prompt, render_info, NODES)
+        
+        # Build ControlNet chain if not using Depth LoRA
+        if not context.scene.generation_method == 'uv_inpaint':
+            if not context.scene.use_flux_lora:
+                prompt = self._refine_build_controlnet_chain_flux(
+                    context, prompt, controlnet_info, NODES
+                )
+            else: # If using Depth LoRA instead of ControlNet, we do not build a ControlNet chain
+                final_node = NODES['pos_prompt']  # Use positive prompt directly if not using ControlNet
+                # Add Required nodes for the FLUX.1-Depth-dev LoRA
+                from .util.helpers import depth_lora_flux
+                depth_lora_dict = json.loads(depth_lora_flux)
+                prompt.update(depth_lora_dict)
+
+                # Label nodes
+                NODES['flux_lora_image'] = "245"  # LoadImage
+                NODES['instruct_pix'] = "246"  # InstructPixToPixConditioning
+                NODES['flux_lora'] = "247"  # LoraLoaderModelOnly
+
+                # Configure InstructPixToPixConditioning inputs to InpaintModelConditioning if using differential diffusion
+                if context.scene.differential_diffusion:
+                    prompt[NODES['instruct_pix']]["inputs"]["positive"] = [NODES['inpaint_conditioning'], 0]
+                    prompt[NODES['instruct_pix']]["inputs"]["negative"] = [NODES['inpaint_conditioning'], 1]
+
+                # Connect nodes 
+                prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [NODES['instruct_pix'], 0]
+                # prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['instruct_pix'], 2] # Not doing since we need to respect the mask
+
+                # If using ipadapter, set the apply_ipadapter_flux node to use the flux_lora_image
+                if ipadapter_ref_info and context.scene.generation_method != 'uv_inpaint':
+                    prompt[NODES['ipadapter']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+                else:
+                    prompt[NODES['guider']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['flux_lora'], 0]
+
+                # Delete unnecessary nodes
+                if "239" in prompt:
+                    del prompt["239"] # SetUnionControlNetType
+                if "30" in prompt:
+                    del prompt["30"] # EmptyLatentImage
+
+                # Set the image for the Flux LoRA
+                if controlnet_info and "depth" in controlnet_info:
+                    prompt[NODES['flux_lora_image']]["inputs"]["image"] = controlnet_info["depth"]['name']
+        
+        # Save prompt for debugging
+        self._save_prompt_to_file(prompt, revision_dir)
+        
+        # Execute generation and get results
+        ws = self._connect_to_websocket(server_address, client_id)
+
+        if ws is None:
+            return {"error": "conn_failed"} # Connection error
+
+        images = None
+        try:
+            images = self._execute_prompt_and_get_images(ws, prompt, client_id, server_address, NODES)
+        finally:
+            if ws:
+                ws.close()
+
+        if images is None or isinstance(images, dict) and "error" in images:
+            return {"error": "conn_failed"}
+        
+        print(f"Image refined with Flux using prompt: {context.scene.comfyui_prompt}")
+        
+        # Return the refined image
+        return images[NODES['save_image']][0]
+
+    def _configure_refinement_mode_flux(self, prompt, context, render_info, mask_info, ipadapter_ref_info, NODES):
+        """Configures the prompt based on the specific refinement mode for Flux."""
+        # Configure based on generation method
+        if context.scene.generation_method == 'refine':
+            # Configure for refine mode - load render directly
+            if render_info:
+                prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
+                prompt[NODES['vae_encode']]["inputs"]["pixels"] = [NODES['render_image'], 0]
+            # Connect latent to sampler
+            prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['vae_encode'], 0]
+        
+        elif context.scene.generation_method in ['uv_inpaint', 'sequential']:
+            # Configure for inpainting modes
+            if mask_info:
+                prompt[NODES['mask_image']]["inputs"]["image"] = mask_info['name']
+            if render_info:
+                prompt[NODES['input_image']]["inputs"]["image"] = render_info['name']
+            
+            # Configure mask processing
+            if not context.scene.blur_mask:
+                prompt[NODES['vae_encode_inpaint']]["inputs"]["mask"] = [NODES['grow_mask'], 0]
+                if context.scene.differential_diffusion:
+                    prompt[NODES['inpaint_conditioning']]["inputs"]["mask"] = [NODES['grow_mask'], 0]
+            else:
+                # Configure blur chain
+                prompt[NODES['image_to_mask']]["inputs"]["image"] = [NODES['blur'], 0]
+                prompt[NODES['vae_encode_inpaint']]["inputs"]["mask"] = [NODES['image_to_mask'], 0]
+            
+            # Different setups based on differential diffusion
+            if context.scene.differential_diffusion:
+                # Connect differential diffusion between model loader and other components
+                prompt[NODES['guider']]["inputs"]["model"] = [NODES['differential_diffusion'], 0]
+                prompt[NODES['scheduler']]["inputs"]["model"] = [NODES['differential_diffusion'], 0]
+                
+                # Connect inpaint conditioning to differential diffusion
+                if ipadapter_ref_info:
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['ipadapter'], 0]
+                else:
+                    prompt[NODES['differential_diffusion']]["inputs"]["model"] = [NODES['unet_loader'], 0]
+                
+                # Configure inpaint conditioning with proper input image and mask
+                prompt[NODES['inpaint_conditioning']]["inputs"]["pixels"] = [
+                    NODES['upscale_uv'], 0
+                ] if context.scene.generation_method == 'uv_inpaint' else [NODES['input_image'], 0]
+                
+                # Connect latent to sampler from inpaint conditioning
+                prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['inpaint_conditioning'], 2]
+                
+                # Connect conditioning to flux_guidance
+                prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [NODES['inpaint_conditioning'], 0]
+            else:
+                # Standard setup without differential diffusion
+                prompt[NODES['sampler']]["inputs"]["latent_image"] = [NODES['vae_encode_inpaint'], 0]
+            
+            if context.scene.generation_method == 'uv_inpaint':
+                self._configure_uv_inpainting_mode_flux(prompt, context, render_info, NODES)
+            else:  # Sequential mode
+                self._configure_sequential_mode_flux(prompt, context, NODES)
+
+    def _configure_uv_inpainting_mode_flux(self, prompt, context, render_info, NODES):
+        """Configures the prompts for UV inpainting mode in Flux."""
+        # UV inpainting specific configuration
+        prompt[NODES['upscale_uv']]["inputs"]["image"] = [NODES['input_image'], 0]
+        
+        if not context.scene.differential_diffusion:
+            prompt[NODES['vae_encode_inpaint']]["inputs"]["pixels"] = [NODES['upscale_uv'], 0]
+        else:
+            # Set the noise_mask flag according to context.scene.differential_noise
+            prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
+        
+        # Create UV-specific prompt
+        uv_prompt = f"seamless (UV-unwrapped texture) of {context.scene.comfyui_prompt}, consistent material continuity, no visible seams or stretching"
+        prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
+        
+        # Object-specific prompt if available
+        if render_info and 'name' in render_info:
+            current_object_name = os.path.basename(render_info['name']).split('.')[0]
+            object_prompt = self._object_prompts.get(current_object_name, context.scene.comfyui_prompt)
+            if object_prompt:
+                uv_prompt = f"(UV-unwrapped texture) of {object_prompt}, consistent material continuity, no visible seams or stretching"
+                prompt[NODES['pos_prompt']]["inputs"]["text"] = uv_prompt
+
+    def _configure_sequential_mode_flux(self, prompt, context, NODES):
+        """Configures the prompt for sequential generation mode in Flux."""
+        # Direct connection for sequential mode
+        if not context.scene.differential_diffusion:
+            prompt[NODES['vae_encode_inpaint']]["inputs"]["pixels"] = [NODES['input_image'], 0]
+        else:
+            # Set the noise_mask flag according to context.scene.differential_noise
+            prompt[NODES['inpaint_conditioning']]["inputs"]["noise_mask"] = context.scene.differential_noise
+
+    def _refine_configure_images_flux(self, prompt, render_info, NODES):
+        """Configures the input images for the refinement process in Flux."""
+        # Set render image if provided
+        if render_info:
+            prompt[NODES['render_image']]["inputs"]["image"] = render_info['name']
+        
+        # Control images are handled by the controlnet chain builder
+
+    def _refine_build_controlnet_chain_flux(self, context, prompt, controlnet_info, NODES):
+        """Builds the ControlNet chain for refinement process with Flux."""
+        input = NODES['pos_prompt'] if not context.scene.differential_diffusion else NODES['inpaint_conditioning']
+        # For Flux, the controlnet chain connects to the guidance node
+        prompt, final_node = self._build_controlnet_chain_extended(
+            context, prompt, input, input, NODES['vae_loader'],
+            controlnet_info
+        )
+        # Connect final node to FluxGuidance conditioning input
+        prompt[NODES['flux_guidance']]["inputs"]["conditioning"] = [final_node, 0]
+        return prompt

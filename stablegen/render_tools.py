@@ -92,7 +92,7 @@ def apply_uv_inpaint_texture(context, obj, baked_image_path):
     # Connect UV map node to texture node
     links.new(uv_map_node.outputs["UV"], tex_node.inputs["Vector"])
 
-def export_emit_image(context, to_export, camera_id=None, bg_color=(0.5, 0.5, 0.5), view_transform='Standard'):
+def export_emit_image(context, to_export, camera_id=None, bg_color=(0.5, 0.5, 0.5), view_transform='Standard', fallback_color=(0,0,0)):
         """     
         Exports a emit-only render of the scene from a camera's perspective.         
         :param context: Blender context.         
@@ -147,9 +147,15 @@ def export_emit_image(context, to_export, camera_id=None, bg_color=(0.5, 0.5, 0.
             if before_output.type == 'BSDF_PRINCIPLED':
                 # Find the last color mix node
                 color_mix = output.inputs[0].links[0].from_node.inputs[0].links[0].from_node
+                # Set color 2 to fallback color
+                if not "visibility" in str(camera_id):
+                    color_mix.inputs["Color2"].default_value = (fallback_color[0], fallback_color[1], fallback_color[2], 1.0)
             else:
                 # Already a color mix node
                 color_mix = before_output
+                # Set color 2 to fallback color
+                if not "visibility" in str(camera_id):
+                    color_mix.inputs["Color2"].default_value = (fallback_color[0], fallback_color[1], fallback_color[2], 1.0)
                 continue
 
             # Find the last color mix node
@@ -636,7 +642,7 @@ def export_visibility(context, to_export, obj=None, camera_visibility=None):
         camera_render_index = (camera_visibility_index + 1) % len(cameras)
         camera_render = cameras[camera_render_index]
         context.scene.camera = camera_render
-        export_emit_image(context, to_export, camera_id=f"{camera_render_index}_visibility", bg_color=(1, 1, 1), view_transform='Raw')
+        export_emit_image(context, to_export, camera_id=f"{camera_render_index}_visibility", bg_color=(1, 1, 1), view_transform='Raw', fallback_color=(1,1,1))
 
     # Restore original materials
     for obj, materials in original_materials.items():
