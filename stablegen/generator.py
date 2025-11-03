@@ -1,6 +1,7 @@
 import os
 import bpy  # pylint: disable=import-error
 import numpy as np
+import cv2
 
 import uuid
 import json
@@ -10,9 +11,11 @@ import threading
 import requests
 import traceback
 import json
+import io
 from datetime import datetime
 
 import math
+import colorsys
 from PIL import Image, ImageEnhance
 
 from .util.helpers import prompt_text, prompt_text_img2img, prompt_text_qwen_image_edit # pylint: disable=relative-beyond-top-level
@@ -349,6 +352,14 @@ class ComfyUIGenerate(bpy.types.Operator):
         self._wait_event = threading.Event()
         self.workflow_manager = WorkflowManager(self)
                 
+    def _get_qwen_context_colors(self, context):
+        fallback = (1.0, 0.0, 1.0)
+        background = (1.0, 0.0, 1.0)
+        if context.scene.qwen_context_render_mode in {'REPLACE_STYLE', 'ADDITIONAL'}:
+            fallback = tuple(context.scene.qwen_guidance_fallback_color)
+            background = tuple(context.scene.qwen_guidance_background_color)
+        return fallback, background
+
     @classmethod
     def poll(cls, context):
         """     
@@ -858,7 +869,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                                 # Export visibility mask and render for the current camera, we need to use a callback to be in the main thread
                                 export_visibility(context, self._to_texture, camera_visibility=self._cameras[self._current_image - 1]) # Export mask for current view
                                 if context.scene.model_architecture == 'qwen_image_edit': # export custom bg and fallback for Qwen image edit
-                                    export_emit_image(context, self._to_texture, camera_id=self._current_image, bg_color=(1.0, 0.0, 1.0), fallback_color=(1.0, 0.0, 1.0)) # Export render for next view
+                                    fallback_color, background_color = self._get_qwen_context_colors(context)
+                                    export_emit_image(context, self._to_texture, camera_id=self._current_image, bg_color=background_color, fallback_color=fallback_color) # Export render for next view
+                                    self._dilate_qwen_context_fallback(context, self._current_image, fallback_color)
                                 else:
                                     export_emit_image(context, self._to_texture, camera_id=self._current_image, bg_color=context.scene.fallback_color, fallback_color=context.scene.fallback_color) # Export render for next view
                                 self._wait_event.set()
@@ -885,6 +898,13 @@ class ComfyUIGenerate(bpy.types.Operator):
 
                     if image == {"error": "conn_failed"}:
                         return # Error message already set
+
+                    if (context.scene.model_architecture == 'qwen_image_edit' and
+                            context.scene.generation_method == 'sequential' and
+                            self._current_image > 0 and
+                            context.scene.qwen_context_cleanup and
+                            context.scene.qwen_context_render_mode in {'REPLACE_STYLE', 'ADDITIONAL'}):
+                        image = self._apply_qwen_context_cleanup(context, image)
                     
                     # Save the generated image using new path structure
                     if context.scene.generation_method == 'uv_inpaint':
@@ -1044,6 +1064,117 @@ class ComfyUIGenerate(bpy.types.Operator):
             return context.window_manager.invoke_props_dialog(self, width=400)
         return self.execute(context)
     
+    def _dilate_qwen_context_fallback(self, context, camera_id, fallback_color):
+        dilation = int(max(0, context.scene.qwen_context_fallback_dilation))
+        if dilation <= 0:
+            return
+
+        image_path = get_file_path(context, "inpaint", subtype="render", camera_id=camera_id)
+        if not image_path or not os.path.exists(image_path):
+            return
+
+        try:
+            with Image.open(image_path) as img:
+                pixel_data = np.array(img.convert("RGBA"))
+        except Exception as err:
+            print(f"Failed to load context render for dilation at {image_path}: {err}")
+            return
+
+        fallback_rgb = np.array([int(round(component * 255.0)) for component in fallback_color], dtype=np.uint8)
+        rgb = pixel_data[:, :, :3].astype(np.int16)
+        diff = np.abs(rgb - fallback_rgb[np.newaxis, np.newaxis, :])
+        mask = np.all(diff <= 3, axis=2)
+        if not np.any(mask):
+            return
+
+        mask_uint8 = (mask.astype(np.uint8) * 255)
+        kernel_size = max(1, dilation * 2 + 1)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        dilated = cv2.dilate(mask_uint8, kernel, iterations=1)
+        dilated_mask = dilated > 0
+
+        pixel_data[dilated_mask, :3] = fallback_rgb
+        if pixel_data.shape[2] == 4:
+            pixel_data[dilated_mask, 3] = 255
+
+        try:
+            Image.fromarray(pixel_data).save(image_path)
+        except Exception as err:
+            print(f"Failed to save dilated context render at {image_path}: {err}")
+            return
+
+        if hasattr(self, '_uploaded_images_cache') and self._uploaded_images_cache is not None:
+            self._uploaded_images_cache.pop(os.path.abspath(image_path), None)
+
+    def _apply_qwen_context_cleanup(self, context, image_bytes):
+        hue_tolerance = max(context.scene.qwen_context_cleanup_hue_tolerance, 0.0)
+        value_adjust = context.scene.qwen_context_cleanup_value_adjust
+        fallback_color = tuple(context.scene.qwen_guidance_fallback_color)
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as pil_image:
+                rgba_image = pil_image.convert("RGBA")
+                pixel_data = np.array(rgba_image)
+        except Exception as err:
+            print(f"  Warning: Failed to read Qwen context render for cleanup: {err}")
+            traceback.print_exc()
+            return image_bytes
+
+        rgb = pixel_data[:, :, :3].astype(np.float32) / 255.0
+        alpha = pixel_data[:, :, 3]
+
+        maxc = rgb.max(axis=2)
+        minc = rgb.min(axis=2)
+        delta = maxc - minc
+
+        hue = np.zeros_like(maxc, dtype=np.float32)
+        non_gray = delta > 1e-6
+        safe_delta = np.where(non_gray, delta, 1.0)  # avoid divide-by-zero
+
+        r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+
+        idx = non_gray & (r == maxc)
+        hue[idx] = ((g[idx] - b[idx]) / safe_delta[idx]) % 6.0
+        idx = non_gray & (g == maxc)
+        hue[idx] = ((b[idx] - r[idx]) / safe_delta[idx]) + 2.0
+        idx = non_gray & (b == maxc)
+        hue[idx] = ((r[idx] - g[idx]) / safe_delta[idx]) + 4.0
+        hue = (hue / 6.0) % 1.0
+
+        try:
+            fallback_hue = colorsys.rgb_to_hsv(*fallback_color)[0]
+        except Exception:
+            fallback_hue = 0.0
+        hue_tol_normalized = hue_tolerance / 360.0
+        if hue_tol_normalized <= 0.0:
+            hue_tol_normalized = 0.0
+
+        diff = np.abs(hue - fallback_hue)
+        diff = np.minimum(diff, 1.0 - diff)
+        target_mask = non_gray & (diff <= hue_tol_normalized)
+
+        if not np.any(target_mask):
+            return image_bytes
+
+        value = maxc
+        adjusted_value = np.clip(value[target_mask] + value_adjust, 0.0, 1.0)
+
+        updated_rgb = np.array(rgb)
+        grayscale_values = np.repeat(adjusted_value[:, None], 3, axis=1)
+        updated_rgb[target_mask] = grayscale_values
+
+        updated_pixels = np.empty_like(pixel_data)
+        updated_pixels[:, :, :3] = np.clip(np.round(updated_rgb * 255.0), 0, 255).astype(np.uint8)
+        updated_pixels[:, :, 3] = alpha
+
+        try:
+            buffer = io.BytesIO()
+            Image.fromarray(updated_pixels, mode="RGBA").save(buffer, format="PNG")
+            return buffer.getvalue()
+        except Exception as err:
+            print(f"  Warning: Failed to write cleaned Qwen context render: {err}")
+            traceback.print_exc()
+            return image_bytes
+
     def export_depthmap(self, context, camera_id=None):
         """     
         Exports the depth map of the scene.         

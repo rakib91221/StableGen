@@ -25,11 +25,16 @@ class WorkflowManager:
         is_generating = hasattr(self.operator, '_current_image')
         is_subsequent_in_sequence = is_generating and self.operator._current_image > 0
 
-        style_image_provided = (
-            context.scene.qwen_use_external_style_image or
-            ((not is_generating or is_subsequent_in_sequence) and
-             (context.scene.sequential_ipadapter or context.scene.qwen_context_render_mode == 'REPLACE_STYLE'))
-        )
+        if is_initial_image:
+            # First frame only has a style reference when an explicit external image is supplied.
+            style_image_provided = context.scene.qwen_use_external_style_image
+        else:
+            # Later frames can draw style from previous renders, external sources, or context renders.
+            style_image_provided = (
+                context.scene.qwen_use_external_style_image or
+                context.scene.sequential_ipadapter or
+                context.scene.qwen_context_render_mode in {'REPLACE_STYLE', 'ADDITIONAL'}
+            )
         context_mode = context.scene.qwen_context_render_mode
 
         if is_initial_image:
@@ -102,6 +107,7 @@ class WorkflowManager:
         context_render_info = None
         context_mode = context.scene.qwen_context_render_mode
         remove_context = False
+        style_requires_scaling = False
 
         # --- Camera Prompt Injection ---
         if context.scene.use_camera_prompts and self.operator._cameras and self.operator._current_image < len(self.operator._cameras):
@@ -158,6 +164,7 @@ class WorkflowManager:
             if not style_image_info:
                 self.operator._error = "External style image enabled, but file not found or could not be uploaded."
                 return {"error": "conn_failed"}
+            style_requires_scaling = True
             if context_mode != 'ADDITIONAL':
                 if context.scene.qwen_use_custom_prompts:
                     pos_prompt_text = (context.scene.qwen_custom_prompt_initial if is_initial_image else context.scene.qwen_custom_prompt_seq_none).format(main_prompt=user_prompt)
@@ -203,6 +210,24 @@ class WorkflowManager:
         else:
             # A style image is provided, so set the loader input.
             prompt[NODES['style_map_loader']]['inputs']['image'] = style_image_info['name']
+            if style_requires_scaling:
+                scale_node_int = 600
+                while str(scale_node_int) in prompt:
+                    scale_node_int += 1
+                scale_node_key = str(scale_node_int)
+                prompt[scale_node_key] = {
+                    "inputs": {
+                        "upscale_method": "lanczos",
+                        "megapixels": 1,
+                        "image": [NODES['style_map_loader'], 0]
+                    },
+                    "class_type": "ImageScaleToTotalPixels",
+                    "_meta": {
+                        "title": "Scale Image to Total Pixels"
+                    }
+                }
+                prompt[NODES['pos_prompt']]['inputs']['image2'] = [scale_node_key, 0]
+                prompt[NODES['neg_prompt']]['inputs']['image2'] = [scale_node_key, 0]
 
         # --- Configure Sampler ---
         prompt[NODES['sampler']]['inputs']['seed'] = context.scene.seed
@@ -383,8 +408,8 @@ class WorkflowManager:
         """Sets the generation resolution based on mode."""
         if context.scene.generation_method == 'grid':
             # Use the resolution of the grid image
-            prompt[NODES['latent']]["inputs"]["width"] = self._grid_width
-            prompt[NODES['latent']]["inputs"]["height"] = self._grid_height
+            prompt[NODES['latent']]["inputs"]["width"] = self.operator._grid_width
+            prompt[NODES['latent']]["inputs"]["height"] = self.operator._grid_height
         else:
             # Use current render resolution
             prompt[NODES['latent']]["inputs"]["width"] = context.scene.render.resolution_x
@@ -644,7 +669,7 @@ class WorkflowManager:
                 elif message['type'] == 'progress':
                     progress = (message['data']['value'] / message['data']['max']) * 100
                     if progress != 0:
-                        self._progress = progress  # Update progress for UI
+                        self.operator._progress = progress  # Update progress for UI
                         print(f"Progress: {progress:.1f}%")
             else:
                 # Binary data (image)

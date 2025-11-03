@@ -1737,6 +1737,60 @@ def register():
         update=update_parameters
     )
 
+    bpy.types.Scene.qwen_guidance_fallback_color = bpy.props.FloatVectorProperty(
+        name="Guidance Fallback Color",
+        description="Color used for fallback regions in the Qwen context render",
+        subtype='COLOR',
+        default=(1.0, 0.0, 1.0),
+        min=0.0,
+        max=1.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_guidance_background_color = bpy.props.FloatVectorProperty(
+        name="Guidance Background Color",
+        description="Background color for the Qwen context render",
+        subtype='COLOR',
+        default=(1.0, 0.0, 1.0),
+        min=0.0,
+        max=1.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_context_cleanup = bpy.props.BoolProperty(
+        name="Use Context Cleanup",
+        description="Replace fallback color in subsequent Qwen renders before projection",
+        default=False,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_context_cleanup_hue_tolerance = bpy.props.FloatProperty(
+        name="Cleanup Hue Tolerance",
+        description="Hue tolerance in degrees for identifying fallback regions during cleanup",
+        default=5.0,
+        min=0.0,
+        max=180.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_context_cleanup_value_adjust = bpy.props.FloatProperty(
+        name="Cleanup Value Adjustment",
+        description="Adjust value (brightness) for cleaned pixels. -1 darkens to black, 1 brightens to white.",
+        default=0.0,
+        min=-1.0,
+        max=1.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.qwen_context_fallback_dilation = bpy.props.IntProperty(
+        name="Fallback Dilation",
+        description="Dilate fallback color regions in the context render before sending to Qwen.",
+        default=1,
+        min=0,
+        max=64,
+        update=update_parameters
+    )
+
     bpy.types.Scene.output_timestamp = bpy.props.StringProperty(
         name="Output Timestamp",
         description="Timestamp for generation output directory",
@@ -1972,6 +2026,12 @@ def unregister():
     del bpy.types.Scene.qwen_custom_prompt_seq_none
     del bpy.types.Scene.qwen_custom_prompt_seq_replace
     del bpy.types.Scene.qwen_custom_prompt_seq_additional
+    del bpy.types.Scene.qwen_guidance_fallback_color
+    del bpy.types.Scene.qwen_guidance_background_color
+    del bpy.types.Scene.qwen_context_cleanup
+    del bpy.types.Scene.qwen_context_cleanup_hue_tolerance
+    del bpy.types.Scene.qwen_context_cleanup_value_adjust
+    del bpy.types.Scene.qwen_context_fallback_dilation
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
