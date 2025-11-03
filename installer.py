@@ -107,7 +107,52 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "url": "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors?download=true",
         "target_path_relative": "models/checkpoints", "filename": "RealVisXL_V5.0_fp16.safetensors",
         "license": "OpenRAIL++", "size_mb": 6500, "packages": ["checkpoint_realvis"]
-    }
+    },
+    # Qwen Core
+    "cn_comfyui_gguf": {
+        "id": "cn_comfyui_gguf", "type": "node", "name": "ComfyUI GGUF Loader",
+        "git_url": "https://github.com/city96/ComfyUI-GGUF.git",
+        "target_dir_relative": "custom_nodes",
+        "repo_name": "ComfyUI-GGUF",
+        "license": "Apache 2.0", "packages": ["qwen_core"]
+    },
+    "model_qwen_unet_q3_k_m": {
+        "id": "model_qwen_unet_q3_k_m", "type": "model", "name": "Qwen Image Edit 2509 UNet (Q3_K_M)",
+        "url": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/main/Qwen-Image-Edit-2509-Q3_K_M.gguf?download=true",
+        "target_path_relative": "models/unet", "filename": "Qwen-Image-Edit-2509-Q3_K_M.gguf",
+        "license": "Apache 2.0", "size_mb": 9760, "packages": ["qwen_core"]
+    },
+    "model_qwen_vae": {
+        "id": "model_qwen_vae", "type": "model", "name": "Qwen Image VAE",
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors?download=true",
+        "target_path_relative": "models/vae", "filename": "qwen_image_vae.safetensors",
+        "license": "Apache 2.0", "size_mb": 254, "packages": ["qwen_core"]
+    },
+    "model_qwen_text_encoder_fp8": {
+        "id": "model_qwen_text_encoder_fp8", "type": "model", "name": "Qwen 2.5 VL 7B Text Encoder (FP8)",
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors?download=true",
+        "target_path_relative": "models/clip", "filename": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "license": "Apache 2.0", "size_mb": 9380, "packages": ["qwen_core"]
+    },
+    "lora_qwen_lightning_4step_edit": {
+        "id": "lora_qwen_lightning_4step_edit", "type": "model", "name": "Qwen Image Edit Lightning 4-Step LoRA (bf16)",
+        "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors?download=true",
+        "target_path_relative": "models/loras", "filename": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+        "license": "Apache 2.0", "size_mb": 850, "packages": ["qwen_core"]
+    },
+    # Qwen Extras
+    "lora_qwen_lightning_8step": {
+        "id": "lora_qwen_lightning_8step", "type": "model", "name": "Qwen Image Edit Lightning 8-Step LoRA (bf16)",
+        "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors?download=true",
+        "target_path_relative": "models/loras", "filename": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
+        "license": "Apache 2.0", "size_mb": 850, "packages": ["qwen_extras"]
+    },
+    "lora_qwen_lightning_4step": {
+        "id": "lora_qwen_lightning_4step", "type": "model", "name": "Qwen Image Lightning 4-Step LoRA (bf16)",
+        "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors?download=true",
+        "target_path_relative": "models/loras", "filename": "Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors",
+        "license": "Apache 2.0", "size_mb": 850, "packages": ["qwen_extras"]
+    },
 }
 
 # Define what items each menu option entails by listing package tags
@@ -127,8 +172,16 @@ MENU_PACKAGES: Dict[str, Dict[str, Any]] = {
           "description_suffix": "*Downloads optional ControlNet and LoRA models. You will still need to manually download your own SDXL checkpoint(s).*"},
     '4': {"name": "[COMPLETE SDXL] Full SDXL Setup + RealVisXL V5.0 Checkpoint",
           "tags": ["core", "preset_essentials", "extended_optional", "checkpoint_realvis"],
-          "size_gb": 23.0,
-          "description_suffix": ""}
+        "size_gb": 23.0,
+        "description_suffix": ""},
+    '5': {"name": "[QWEN CORE] Models + GGUF Node",
+        "tags": ["qwen_core"],
+        "size_gb": 20.3,
+        "description_suffix": "*Installs Qwen Image Edit UNet, VAE, text encoder, core LoRA, and GGUF ComfyUI node.*"},
+    '6': {"name": "[QWEN EXTRAS] Core + Lightning LoRAs",
+        "tags": ["qwen_core", "qwen_extras"],
+        "size_gb": 22.6,
+        "description_suffix": "*Adds additional Qwen Lightning LoRAs on top of the Qwen core install.*"}
 }
 
 # --- Helper Functions ---
@@ -311,7 +364,7 @@ def main():
 
     while True:
         display_menu(comfyui_base_path)
-        choice = input("Enter your choice (1-4, or q to quit): ").strip().lower()
+        choice = input("Enter your choice (1-6, or q to quit): ").strip().lower()
 
         if choice == 'q':
             print("Exiting installer.")

@@ -1041,7 +1041,7 @@ def load_handler(dummy):
             if scene.model_architecture == 'sdxl':
                 default_lora_filename_to_find = 'sdxl_lightning_8step_lora.safetensors'
             elif scene.model_architecture == 'qwen_image_edit':
-                default_lora_filename_to_find = 'Qwen-Image-Lightning-4steps-V1.0.safetensors'
+                default_lora_filename_to_find = 'Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors'
                 clip_strength = 0.0 # Qwen uses model-only LoRA
 
             if not default_lora_filename_to_find:
@@ -1719,6 +1719,7 @@ def register():
     bpy.types.Scene.qwen_custom_prompt_seq_none = bpy.props.StringProperty(
         name="Sequential Prompt (No Context)",
         description="Custom prompt for subsequent images when Context Render is 'Disabled'. Use {main_prompt} to insert the main prompt text.",
+       
         default="Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2",
         update=update_parameters
     )
