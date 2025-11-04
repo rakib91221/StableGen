@@ -171,6 +171,12 @@ class WorkflowManager:
                 else:
                     pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
                 prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
+            else: # Additional mode
+                if context.scene.qwen_use_custom_prompts:
+                    pos_prompt_text = ()
+                else:
+                    pos_prompt_text = self._get_qwen_default_prompts(context, is_initial_image).format(main_prompt=user_prompt)
+                prompt[NODES['pos_prompt']]['inputs']['prompt'] = pos_prompt_text
 
         # Case 2: Sequential generation (after first image)
         elif not is_initial_image:
