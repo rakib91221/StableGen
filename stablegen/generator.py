@@ -539,14 +539,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                         for i in range(uv_slots_needed):
                             if uv_map == f"ProjectionUV_{i}_{self._material_id}":
                                 usable_maps += 1
-                    if len(uv_maps) == 1:
-                        # Probably a baked texture, check if there is enough uv slots
-                        if 8 - len(obj.data.uv_layers) - 1 < uv_slots_needed:
-                            self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
-                            context.scene.generation_status = 'idle'
-                            ComfyUIGenerate._is_running = False
-                            return {'CANCELLED'}
-                    elif 8 - len(obj.data.uv_layers) + usable_maps < uv_slots_needed:
+                    if 8 - len(obj.data.uv_layers) + usable_maps < uv_slots_needed:
                             print(f"8 - {len(obj.data.uv_layers)} + {usable_maps} < {uv_slots_needed}")
                             self.report({'ERROR'}, "Not enough UV map slots for all cameras.")
                             context.scene.generation_status = 'idle'
