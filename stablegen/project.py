@@ -298,16 +298,18 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
             # We also need to set the generated image to the texture node with label {stop_index}-{mat_id}
             for node in nodes:
                 if node.type == 'TEX_IMAGE' and node.label == f"{stop_index}-{mat_id}":
-                    output_dir = context.preferences.addons[__package__].preferences.output_dir
                     if not context.scene.bake_texture:
-                        image = bpy.data.images.load(get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id))
+                        image_path = get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id)
                         if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate \
                         and not context.scene.use_ipadapter and stop_index == 0 and context.scene.sequential_ipadapter_mode == 'first':
-                            image = bpy.data.images.load(get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id).replace(".png", "_ipadapter.png"))
+                            image_path = get_file_path(context, "generated", camera_id=stop_index, material_id=mat_id).replace(".png", "_ipadapter.png")
                     else:
                         # Use baked texture
-                        image = bpy.data.images.load(get_file_path(context, "generated_baked", camera_id=stop_index, material_id=mat_id, object_name=obj.name))
-                    node.image = image
+                        image_path = get_file_path(context, "generated_baked", camera_id=stop_index, material_id=mat_id, object_name=obj.name)
+
+                    image = get_or_load_image(image_path, force_reload=context.scene.overwrite_material)
+                    if image:
+                        node.image = image
                     break
             # Now we can continue to the next object
             continue
@@ -352,17 +354,20 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
         for i, camera in enumerate(cameras):
             # Add image texture node
             tex_image = nodes.new("ShaderNodeTexImage")
-            output_dir = context.preferences.addons[__package__].preferences.output_dir
             if i <= stop_index:
                 if not context.scene.bake_texture:
-                    image = bpy.data.images.load(get_file_path(context, "generated", camera_id=i, material_id=mat_id))
+                    image_path = get_file_path(context, "generated", camera_id=i, material_id=mat_id)
                     if (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate') and context.scene.sequential_ipadapter and context.scene.sequential_ipadapter_regenerate \
                     and not context.scene.use_ipadapter and i == 0 and context.scene.sequential_ipadapter_mode == 'first':
-                        image = bpy.data.images.load(get_file_path(context, "generated", camera_id=i, material_id=mat_id).replace(".png", "_ipadapter.png"))
+                        image_path = get_file_path(context, "generated", camera_id=i, material_id=mat_id).replace(".png", "_ipadapter.png")
                 else:
                     # Use baked texture
-                    image = bpy.data.images.load(get_file_path(context, "generated_baked", camera_id=i, material_id=mat_id, object_name=obj.name))
-                tex_image.image = image
+                    image_path = get_file_path(context, "generated_baked", camera_id=i, material_id=mat_id, object_name=obj.name)
+
+                image = get_or_load_image(image_path, force_reload=context.scene.overwrite_material)
+                if image:
+                    tex_image.image = image
+
             tex_image.location = (0, -200 * i)
             tex_image.extension = 'CLIP'
             tex_image.label = f"{i}-{mat_id}"
@@ -538,7 +543,9 @@ def simple_project_bake(context, camera_id, obj, mat_id):
         and not context.scene.use_ipadapter and camera_id == 0 and context.scene.sequential_ipadapter_mode == 'first':
         file_path = get_file_path(context, "generated", camera_id=camera_id, material_id=mat_id).replace(".png", "_ipadapter.png")
     
-    tex_image.image = bpy.data.images.load(file_path)
+    image = get_or_load_image(file_path, force_reload=context.scene.overwrite_material)
+    if image:
+        tex_image.image = image
 
     # Add UV map node
     uv_map_node = nodes.new("ShaderNodeUVMap")
@@ -572,6 +579,49 @@ def simple_project_bake(context, camera_id, obj, mat_id):
 
     # Remove the temporary material
     bpy.ops.object.material_slot_remove()
+
+
+def get_or_load_image(filepath, force_reload=False):
+    """
+    Prevents duplicate image datablocks by default.
+    If force_reload is True, it finds the existing datablock 
+    and reloads it from the specified filepath.
+    """
+    if not filepath:
+        print("Error: No filepath provided to get_or_load_image.")
+        return None
+
+    filename = os.path.basename(filepath)
+    image = bpy.data.images.get(filename)
+    
+    if image and force_reload:
+        # Image exists, but we are forced to reload (overwrite).
+        try:
+            # IMPORTANT: Update the filepath property of the existing
+            # datablock to the new file path.
+            image.filepath = filepath
+            
+            # Reload the image data from that path.
+            image.reload()
+        except RuntimeError as e:
+            # Reload can fail if the file isn't found, etc.
+            print(f"Reload failed for {filename}. Removing old datablock. Error: {e}")
+            # Remove the bad datablock so we can try loading it fresh.
+            bpy.data.images.remove(image)
+            image = None # Set to None to trigger the load block below
+
+    if image is None:
+        # Image does not exist in .data, or it failed to reload.
+        try:
+            image = bpy.data.images.load(filepath)
+            image.name = filename # Ensure name matches filename
+        except RuntimeError as e:
+            # Load can fail if the file isn't found.
+            print(f"Warning: Could not load image file: {filepath}. Error: {e}")
+            return None
+            
+    return image
+
 
 def reinstate_compare_nodes(context, to_project, stop_id_mat_id_pairs):
     """
