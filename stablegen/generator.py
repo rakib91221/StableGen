@@ -44,6 +44,7 @@ class Regenerate(bpy.types.Operator):
     _original_method = None
     _original_overwrite_material = None
     _timer = None
+    _to_texture = None
     @classmethod
     def poll(cls, context):
         """     
@@ -91,6 +92,29 @@ class Regenerate(bpy.types.Operator):
         # Set timer to 1 seconds to give some time for the generate to start
         context.window_manager.modal_handler_add(self)
         self._timer = context.window_manager.event_timer_add(1.0, window=context.window)
+        # Revert to original discard angle in material nodes in case it was reset after generation
+        if context.scene.texture_objects == 'selected':
+            self._to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+            # If empty, cancel the operation
+            if not self._to_texture:
+                self.report({'ERROR'}, "No mesh objects selected for texturing.")
+                context.scene.generation_status = 'idle'
+                ComfyUIGenerate._is_running = False
+                return {'CANCELLED'}
+        else: # all
+            self._to_texture = [obj for obj in bpy.context.view_layer.objects if obj.type == 'MESH' and not obj.hide_get()]
+        # Revert discard angle
+        new_discard_angle = context.scene.discard_factor
+        for obj in self._to_texture:
+            if not obj.active_material or not obj.active_material.use_nodes:
+                continue
+            
+            nodes = obj.active_material.node_tree.nodes
+            for node in nodes:
+                # Identify the OSL script nodes used for raycasting
+                if node.type == 'SCRIPT' and node.mode == 'EXTERNAL' and 'raycast.osl' in node.filepath:
+                    if 'AngleThreshold' in node.inputs:
+                        node.inputs['AngleThreshold'].default_value = new_discard_angle
         # Run the generation operator
         bpy.ops.object.test_stable('INVOKE_DEFAULT')
 
@@ -320,6 +344,7 @@ class ComfyUIGenerate(bpy.types.Operator):
     _material_id = -1
     _to_texture = None
     _original_visibility = None
+    _generation_method_on_start = None
     _uploaded_images_cache: dict = {}
     workflow_manager: object = None
 
@@ -398,6 +423,8 @@ class ComfyUIGenerate(bpy.types.Operator):
             self.cancel_generate(context)
             return {'FINISHED'}
         
+        self._generation_method_on_start = context.scene.generation_method
+
         # Clear the upload cache at the start of a new generation
         self._uploaded_images_cache.clear()
         
@@ -729,6 +756,27 @@ class ComfyUIGenerate(bpy.types.Operator):
                     return {'CANCELLED'}
                 if not context.scene.generation_mode == 'project_only':
                     self.report({'INFO'}, "Generation complete.")
+                
+                # Reset discard factor if enabled
+                if (context.scene.discard_factor_generation_only and
+                        (self._generation_method_on_start == 'sequential' or context.scene.model_architecture == 'qwen_image_edit')):
+                    
+                    new_discard_angle = context.scene.discard_factor_after_generation
+                    print(f"Resetting discard angle in material nodes to {new_discard_angle}...")
+
+                    for obj in self._to_texture:
+                        if not obj.active_material or not obj.active_material.use_nodes:
+                            continue
+                        
+                        nodes = obj.active_material.node_tree.nodes
+                        for node in nodes:
+                            # Identify the OSL script nodes used for raycasting
+                            if node.type == 'SCRIPT' and node.mode == 'EXTERNAL' and 'raycast.osl' in node.filepath:
+                                if 'AngleThreshold' in node.inputs:
+                                    node.inputs['AngleThreshold'].default_value = new_discard_angle
+                    
+                    print("Discard angle reset complete.")
+
                 # If viewport rendering mode is 'Rendered' and mode is 'regenerate_selected', switch to 'Solid' and then back to 'Rendered' to refresh the viewport
                 if context.scene.generation_mode == 'regenerate_selected' and context.area.spaces.active.shading.type == 'RENDERED':
                     context.area.spaces.active.shading.type = 'SOLID'

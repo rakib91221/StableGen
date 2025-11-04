@@ -1452,6 +1452,20 @@ def register():
         max=180.0,
         update=update_parameters
     )
+    bpy.types.Scene.discard_factor_generation_only = bpy.props.BoolProperty(
+        name="Reset Discard Angle After Generation",
+        description="If enabled, the 'Discard Factor' will be reset to a specified value after generation completes. Useful for sequential/Qwen modes where a low discard angle is needed during generation but not for final blending",
+        default=False,
+        update=update_parameters
+    )
+    bpy.types.Scene.discard_factor_after_generation = bpy.props.FloatProperty(
+        name="Discard Factor After Generation",
+        description="The value to set the 'Discard Factor' to after generation is complete",
+        default=90.0,
+        min=0.0,
+        max=180.0,
+        update=update_parameters
+    )
     bpy.types.Scene.weight_exponent = bpy.props.FloatProperty(
         name="Weight Exponent",
         description="Controls the falloff curve for viewpoint weighting based on the angle to the surface normal (θ). "
@@ -1964,6 +1978,8 @@ def unregister():
     del bpy.types.Scene.overwrite_material
     del bpy.types.Scene.refine_preserve
     del bpy.types.Scene.discard_factor
+    del bpy.types.Scene.discard_factor_generation_only
+    del bpy.types.Scene.discard_factor_after_generation
     del bpy.types.Scene.weight_exponent
     del bpy.types.Scene.bake_texture
     del bpy.types.Scene.bake_texture_size
