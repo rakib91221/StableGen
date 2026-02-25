@@ -2,6 +2,29 @@ import bpy
 import os
 from datetime import datetime
 
+# ── Heavy modal operators that should block most other panel buttons ──
+_SG_BLOCKED_MODALS = frozenset({
+    'OBJECT_OT_test_stable',
+    'OBJECT_OT_bake_textures',
+    'OBJECT_OT_add_cameras',
+    'OBJECT_OT_collect_camera_prompts',
+    'OBJECT_OT_trellis2_generate',
+    'OBJECT_OT_stablegen_reproject',
+    'OBJECT_OT_stablegen_regenerate',
+    'OBJECT_OT_stablegen_mirror_reproject',
+    'OBJECT_OT_export_orbit_gif',
+})
+
+
+def sg_modal_active(context):
+    """Return True if any StableGen heavy modal operator is currently running."""
+    for window in context.window_manager.windows:
+        for op in window.modal_operators:
+            if op.bl_idname in _SG_BLOCKED_MODALS:
+                return True
+    return False
+
+
 class AddHDRI(bpy.types.Operator):
 	"""Add HDRI Global Illumination to the scene."""
 	bl_idname = "object.add_hdri"
@@ -22,6 +45,10 @@ class AddHDRI(bpy.types.Operator):
 		min=0.01,
 		max=10.0
 	) # type: ignore
+
+	@classmethod
+	def poll(cls, context):
+		return not sg_modal_active(context)
 
 	def execute(self, context):
 		world = context.scene.world
@@ -100,8 +127,7 @@ class ApplyModifiers(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Operator can only run in Object Mode
-        return context.mode == 'OBJECT'
+        return context.mode == 'OBJECT' and not sg_modal_active(context)
 
     def execute(self, context):
         if context.mode != 'OBJECT':
@@ -183,6 +209,10 @@ class CurvesToMesh(bpy.types.Operator):
 	bl_idname = "object.curves_to_mesh"
 	bl_label = "Convert Curves to Mesh"
 	bl_options = {'REGISTER', 'UNDO'}
+
+	@classmethod
+	def poll(cls, context):
+		return not sg_modal_active(context)
 
 	def execute(self, context):
 		# Select all objects

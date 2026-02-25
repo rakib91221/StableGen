@@ -8,7 +8,7 @@ import time
 import mathutils
 from mathutils import Matrix
 import blf
-from .utils import get_file_path, get_dir_path, remove_empty_dirs, get_compositor_node_tree, configure_output_node_paths, get_eevee_engine_id
+from .utils import get_file_path, get_dir_path, remove_empty_dirs, get_compositor_node_tree, configure_output_node_paths, get_eevee_engine_id, sg_modal_active
 import gpu
 from gpu_extras.batch import batch_for_shader
 import tempfile
@@ -2383,8 +2383,12 @@ def _sg_draw_crop_overlays():
         shader.uniform_float("color", (_oc[0], _oc[1], _oc[2], 0.9))
         gpu.state.line_width_set(2.0)
         gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('LESS_EQUAL')
+        gpu.state.depth_mask_set(False)
         batch.draw(shader)
 
+    gpu.state.depth_test_set('NONE')
+    gpu.state.depth_mask_set(True)
     gpu.state.blend_set('NONE')
     gpu.state.line_width_set(1.0)
 
@@ -4004,7 +4008,7 @@ class MirrorCamera(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.camera is not None
+        return context.scene.camera is not None and not sg_modal_active(context)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -4059,7 +4063,7 @@ class ToggleCameraLabels(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return any(o.type == 'CAMERA' for o in context.scene.objects)
+        return any(o.type == 'CAMERA' for o in context.scene.objects) and not sg_modal_active(context)
 
     def execute(self, context):
         global _sg_label_draw_handle
@@ -4122,6 +4126,10 @@ class SyncCameraOrder(bpy.types.Operator):
     bl_label = "Sync Camera Order"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
+
     def execute(self, context):
         scene = context.scene
         cameras = sorted(
@@ -4146,6 +4154,10 @@ class MoveCameraOrder(bpy.types.Operator):
         items=[('UP', "Up", ""), ('DOWN', "Down", "")],
         name="Direction"
     ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
 
     def execute(self, context):
         scene = context.scene
@@ -4320,10 +4332,11 @@ class ApplyCameraOrderPreset(bpy.types.Operator):
 
 
 class CollectCameraPrompts(bpy.types.Operator):
-    """Cycles through cameras and prompts for a viewpoint description for each. This can help when specific perspectives fail to generate correctly.
+    """Collect viewpoint description prompts for the selected cameras (or all cameras if none selected).
     
     - These prompts will be appended before the main prompt for each camera generation.
     - Applicable for separate, sequential and refine (also within grid mode) modes.
+    - Select one or more cameras in the viewport to only prompt for those, or run with no selection to cycle through all cameras.
     - Examples: 'front view', 'close-up on face', 'from above'."""
     bl_idname = "object.collect_camera_prompts"
     bl_label = "Collect Camera View Prompts"
@@ -4355,8 +4368,18 @@ class CollectCameraPrompts(bpy.types.Operator):
         return any(obj.type == 'CAMERA' for obj in context.scene.objects)
 
     def invoke(self, context, event):
-        # Get all camera objects and sort them by name
-        self._cameras = sorted([obj for obj in context.scene.objects if obj.type == 'CAMERA'], key=lambda x: x.name)
+        # Use selected cameras if any are selected, otherwise fall back to all
+        selected_cams = sorted(
+            [obj for obj in context.selected_objects if obj.type == 'CAMERA'],
+            key=lambda x: x.name,
+        )
+        if selected_cams:
+            self._cameras = selected_cams
+        else:
+            self._cameras = sorted(
+                [obj for obj in context.scene.objects if obj.type == 'CAMERA'],
+                key=lambda x: x.name,
+            )
 
         if not self._cameras:
             self.report({'ERROR'}, "No cameras found in the scene.")
@@ -4423,6 +4446,10 @@ class SwitchMaterial(bpy.types.Operator):
         default=0,
         min=0
     ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -5472,15 +5499,10 @@ class BakeTextures(bpy.types.Operator):
             tex_base.label = "BaseColor"
             links.new(uv_node.outputs["UV"], tex_base.inputs["Vector"])
 
-            if context.scene.apply_bsdf or self.bake_pbr:
-                links.new(tex_base.outputs["Color"],
-                          principled.inputs["Base Color"])
-                links.new(principled.outputs[0],
-                          output_node.inputs["Surface"])
-            else:
-                links.new(tex_base.outputs["Color"],
-                          output_node.inputs["Surface"])
-                return
+            links.new(tex_base.outputs["Color"],
+                      principled.inputs["Base Color"])
+            links.new(principled.outputs[0],
+                      output_node.inputs["Surface"])
         else:
             links.new(principled.outputs[0],
                       output_node.inputs["Surface"])
@@ -5698,18 +5720,25 @@ class ExportOrbitGIF(bpy.types.Operator):
         default='FIXED'
     ) # type: ignore
 
-    use_shadow_plane: bpy.props.BoolProperty(
-        name="Ground Shadow",
-        description="Add a temporary shadow-catcher plane beneath the "
-                    "model for a grounded appearance (Cycles only)",
-        default=False
-    ) # type: ignore
-
     use_denoiser: bpy.props.BoolProperty(
         name="Denoise",
         description="Enable Cycles denoising for cleaner specular "
                     "highlights with fewer samples",
         default=True
+    ) # type: ignore
+
+    use_gpu: bpy.props.BoolProperty(
+        name="GPU Compute",
+        description="Use GPU for Cycles rendering (Blender 5.1+ only). "
+                    "Disable to force CPU rendering",
+        default=True
+    ) # type: ignore
+
+    filename_suffix: bpy.props.StringProperty(
+        name="Filename Suffix",
+        description="Internal: appended to the output filename (e.g. '_no_pbr')",
+        default="",
+        options={'HIDDEN'}
     ) # type: ignore
 
     _timer = None
@@ -5719,7 +5748,6 @@ class ExportOrbitGIF(bpy.types.Operator):
     _handle_cancel = None
     _initial_settings = {}
     _temp_empty = None # Added for the pivot empty
-    _temp_shadow_plane = None  # Added for shadow catcher
     _env_mapping_node = None   # For HDRI rotation animation
     _original_world_data = None  # Store entire world setup for restore
     _output_path = "" # Internal variable to store the final GIF path
@@ -5728,6 +5756,7 @@ class ExportOrbitGIF(bpy.types.Operator):
     _frame_paths = [] # List to store paths of rendered frames
     _original_camera_parent = None # Store original camera parent
     _original_camera_matrix = None # Store original camera matrix
+    _original_compute_device_type = None  # For GPU/CPU toggle restore
 
     @classmethod
     def poll(cls, context):
@@ -5739,7 +5768,10 @@ class ExportOrbitGIF(bpy.types.Operator):
         except ImportError:
             return False
         # Check for active object (Mesh or Empty) and active camera
-        return context.active_object is not None and context.active_object.type in {'MESH', 'EMPTY'} and context.scene.camera is not None
+        return (context.active_object is not None
+                and context.active_object.type in {'MESH', 'EMPTY'}
+                and context.scene.camera is not None
+                and not sg_modal_active(context))
 
     def invoke(self, context, event):
         # Check dependency again in invoke to provide feedback
@@ -5764,8 +5796,9 @@ class ExportOrbitGIF(bpy.types.Operator):
         try:
             revision_dir = get_dir_path(context, "revision")
             os.makedirs(revision_dir, exist_ok=True)
-            self._output_path = os.path.join(revision_dir, "orbit.gif")
-            self._output_path_mp4 = os.path.join(revision_dir, "orbit.mp4") # MP4 path
+            suffix = self.filename_suffix or ""
+            self._output_path = os.path.join(revision_dir, f"orbit{suffix}.gif")
+            self._output_path_mp4 = os.path.join(revision_dir, f"orbit{suffix}.mp4") # MP4 path
         except Exception as e:
             self.report({'ERROR'}, f"Could not determine output directory: {e}")
             return {'CANCELLED'}
@@ -5953,48 +5986,6 @@ class ExportOrbitGIF(bpy.types.Operator):
         print("[StableGen] Orbit GIF: using existing HDRI world"
               f" (rotation offset={math.degrees(self.hdri_rotation):.0f}°)")
 
-    def _setup_shadow_plane(self, context):
-        """Create a temporary shadow-catcher plane beneath the model."""
-        obj = context.active_object
-        if not obj:
-            return
-
-        # Determine the bottom of the object's bounding box in world space
-        bbox_corners = [obj.matrix_world @ mathutils.Vector(c)
-                        for c in obj.bound_box]
-        min_z = min(c.z for c in bbox_corners)
-        center_x = sum(c.x for c in bbox_corners) / 8
-        center_y = sum(c.y for c in bbox_corners) / 8
-
-        # Determine a reasonable plane size (2× the bounding box extent)
-        extent_x = max(c.x for c in bbox_corners) - min(c.x for c in bbox_corners)
-        extent_y = max(c.y for c in bbox_corners) - min(c.y for c in bbox_corners)
-        plane_size = max(extent_x, extent_y) * 3
-
-        bpy.ops.mesh.primitive_plane_add(
-            size=plane_size,
-            location=(center_x, center_y, min_z))
-        plane = context.active_object
-        plane.name = "SG_ShadowPlane"
-
-        # Set as shadow catcher (Cycles)
-        plane.is_shadow_catcher = True
-
-        # Create a holdout material so the plane is invisible except
-        # for the shadow it catches.
-        mat = bpy.data.materials.new("SG_ShadowCatcher")
-        mat.use_nodes = True
-        mat.node_tree.nodes.clear()
-        output = mat.node_tree.nodes.new("ShaderNodeOutputMaterial")
-        holdout = mat.node_tree.nodes.new("ShaderNodeHoldout")
-        holdout.location = (-200, 0)
-        mat.node_tree.links.new(holdout.outputs[0],
-                                output.inputs["Surface"])
-        plane.data.materials.append(mat)
-
-        self._temp_shadow_plane = plane
-        print("[StableGen] Orbit GIF: shadow catcher plane added")
-
     def _animate_hdri_rotation(self, context, total_frames):
         """Animate the HDRI Mapping node rotation for counter-rotate
         or environment-only modes."""
@@ -6117,8 +6108,9 @@ class ExportOrbitGIF(bpy.types.Operator):
             try:
                 revision_dir = get_dir_path(context, "revision")
                 os.makedirs(revision_dir, exist_ok=True)
-                self._output_path = os.path.join(revision_dir, "orbit.gif")
-                self._output_path_mp4 = os.path.join(revision_dir, "orbit.mp4")
+                suffix = self.filename_suffix or ""
+                self._output_path = os.path.join(revision_dir, f"orbit{suffix}.gif")
+                self._output_path_mp4 = os.path.join(revision_dir, f"orbit{suffix}.mp4")
             except Exception as e:
                 self.report({'ERROR'}, f"Could not determine output directory: {e}")
                 return {'CANCELLED'}
@@ -6137,6 +6129,8 @@ class ExportOrbitGIF(bpy.types.Operator):
             'filepath': render.filepath,
             'file_format': render.image_settings.file_format,
             'color_mode': render.image_settings.color_mode,
+            'resolution_x': render.resolution_x,
+            'resolution_y': render.resolution_y,
             'resolution_percentage': render.resolution_percentage,
             'use_overwrite': render.use_overwrite,
             'use_placeholder': render.use_placeholder,
@@ -6162,6 +6156,10 @@ class ExportOrbitGIF(bpy.types.Operator):
         render.use_compositing = False
 
         # Apply Render Settings for PNG sequence
+        # Use a fixed 1024×1024 base so GIF resolution is independent of
+        # whatever the generation pipeline left in resolution_x/y.
+        render.resolution_x = 1024
+        render.resolution_y = 1024
         render.filepath = os.path.join(self._temp_dir, "frame_") # Base path for frames
         render.image_settings.file_format = 'PNG' # Render as PNG sequence
         render.image_settings.color_mode = 'RGBA' # Use RGBA (needed for potential alpha, even if we make background opaque)
@@ -6170,6 +6168,40 @@ class ExportOrbitGIF(bpy.types.Operator):
         render.use_placeholder = False
         render.film_transparent = True 
         cycles.samples = self.samples # Set samples for rendering
+
+        # ── GPU / CPU Compute (Blender 5.1+) ───────────────────────────
+        if bpy.app.version >= (5, 1, 0) and scene.render.engine == 'CYCLES':
+            try:
+                cycles_prefs = bpy.context.preferences.addons['cycles'].preferences
+                self._original_compute_device_type = cycles_prefs.compute_device_type
+                self._initial_settings['cycles_device'] = scene.cycles.device
+                if self.use_gpu:
+                    # Probe GPU backends, pick the first that has devices
+                    for backend in ('CUDA', 'OPTIX', 'HIP', 'METAL', 'ONEAPI'):
+                        try:
+                            cycles_prefs.compute_device_type = backend
+                            cycles_prefs.get_devices()
+                            gpu_devs = [d for d in cycles_prefs.devices if d.type == backend]
+                            if gpu_devs:
+                                for d in gpu_devs:
+                                    d.use = True
+                                scene.cycles.device = 'GPU'
+                                print(f"[GIF Export] Using {backend} GPU: "
+                                      f"{', '.join(d.name for d in gpu_devs)}")
+                                break
+                        except Exception:
+                            continue
+                    else:
+                        # No GPU found, fall back to CPU
+                        cycles_prefs.compute_device_type = 'NONE'
+                        scene.cycles.device = 'CPU'
+                        print("[GIF Export] No GPU backend found, falling back to CPU")
+                else:
+                    cycles_prefs.compute_device_type = 'NONE'
+                    scene.cycles.device = 'CPU'
+            except Exception as e:
+                print(f"[GIF Export] Could not configure compute device: {e}")
+                self._original_compute_device_type = None
 
         # ── PBR Showcase: HDRI Environment ────────────────────────────
         if self.use_hdri:
@@ -6185,10 +6217,6 @@ class ExportOrbitGIF(bpy.types.Operator):
                 cycles.denoiser = 'OPENIMAGEDENOISE'
             except TypeError:
                 pass  # Fallback to whatever is default
-
-        # ── PBR Showcase: Ground Shadow Plane ─────────────────────────
-        if self.use_shadow_plane and scene.render.engine == 'CYCLES':
-            self._setup_shadow_plane(context)
 
         # Setup Animation
         try:
@@ -6299,12 +6327,16 @@ class ExportOrbitGIF(bpy.types.Operator):
                     setattr(render.image_settings, 'color_mode', value)
                 elif key in ('samples', 'use_denoising', 'denoiser'):
                     setattr(cycles, key, value)
+                elif key == 'cycles_device':
+                    cycles.device = value
                 elif key == 'engine': # Restore engine
                     setattr(render, key, value)
                 elif key == 'film_transparent': # Restore film transparency
                     setattr(render, key, value)
                 elif key == 'use_compositing': # Restore compositor pipeline state
                     render.use_compositing = value
+                elif key in ('resolution_x', 'resolution_y'):
+                    setattr(render, key, value)
                 elif hasattr(render, key):
                     setattr(render, key, value)
                 elif hasattr(scene, key):
@@ -6315,6 +6347,15 @@ class ExportOrbitGIF(bpy.types.Operator):
         self._initial_settings = {} # Clear stored settings
         self._original_camera_parent = None
         self._original_camera_matrix = None
+
+        # Restore GPU/CPU compute device type (Blender 5.1+)
+        if self._original_compute_device_type is not None:
+            try:
+                cycles_prefs = bpy.context.preferences.addons['cycles'].preferences
+                cycles_prefs.compute_device_type = self._original_compute_device_type
+            except Exception as e:
+                print(f"Warning: Could not restore compute device type: {e}")
+            self._original_compute_device_type = None
 
         # Remove temporary empty
         if self._temp_empty:
@@ -6330,25 +6371,6 @@ class ExportOrbitGIF(bpy.types.Operator):
             if self._temp_empty.name in bpy.data.objects:
                 bpy.data.objects.remove(self._temp_empty, do_unlink=True)
             self._temp_empty = None
-
-        # Remove temporary shadow-catcher plane
-        if self._temp_shadow_plane:
-            try:
-                # Remove the material
-                for mat_slot in self._temp_shadow_plane.data.materials:
-                    if mat_slot and mat_slot.name in bpy.data.materials:
-                        bpy.data.materials.remove(mat_slot)
-                # Remove the mesh data
-                mesh_data = self._temp_shadow_plane.data
-                if self._temp_shadow_plane.name in context.scene.collection.objects:
-                    context.scene.collection.objects.unlink(self._temp_shadow_plane)
-                if self._temp_shadow_plane.name in bpy.data.objects:
-                    bpy.data.objects.remove(self._temp_shadow_plane, do_unlink=True)
-                if mesh_data and mesh_data.name in bpy.data.meshes:
-                    bpy.data.meshes.remove(mesh_data)
-            except Exception as e:
-                print(f"Warning: Could not remove shadow plane: {e}")
-            self._temp_shadow_plane = None
 
         # Restore the world environment (remove injected mapping nodes)
         if self._original_world_data:
@@ -6611,7 +6633,7 @@ class ExportForGameEngine(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         addon_prefs = context.preferences.addons[__package__].preferences
-        return os.path.exists(addon_prefs.output_dir)
+        return os.path.exists(addon_prefs.output_dir) and not sg_modal_active(context)
 
     def draw(self, context):
         layout = self.layout

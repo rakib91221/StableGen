@@ -4,7 +4,7 @@ from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, ge
 from .stablegen import SG_UL_SceneQueueList, SceneQueueAdd, SceneQueueRemove, SceneQueueClear, SceneQueueMoveUp, SceneQueueMoveDown, SceneQueueOpenResult, SceneQueueProcess
 from .render_tools import BakeTextures, AddCameras, CloneCamera, MirrorCamera, ToggleCameraLabels, SwitchMaterial, ExportOrbitGIF, ExportForGameEngine, CollectCameraPrompts, CameraPromptItem, CameraOrderItem, SG_UL_CameraOrderList, SyncCameraOrder, MoveCameraOrder, ApplyCameraOrderPreset
 from .debug_tools import debug_classes as _debug_classes
-from .utils import AddHDRI, ApplyModifiers, CurvesToMesh
+from .utils import AddHDRI, ApplyModifiers, CurvesToMesh, sg_modal_active
 from .generator import ComfyUIGenerate, Reproject, Regenerate, MirrorReproject, Trellis2Generate
 import os
 import requests
@@ -114,6 +114,12 @@ def _run_async(work_fn, done_fn, poll_interval=0.25, track_generation=False):
     def _poll():
         # Discard result if the server address changed after we started.
         if gen != _async_generation:
+            # Still call done_fn so it can clean up (e.g. decrement
+            # _pending_refreshes).  Pass None to signal stale/no result.
+            try:
+                done_fn(None)
+            except Exception:
+                _traceback.print_exc()
             return None  # stop polling — stale
         if t.is_alive():
             return poll_interval  # keep polling
@@ -518,7 +524,7 @@ class CheckServerStatus(bpy.types.Operator):
         # Also check that another check isn't running if using threading later
         # global _is_refreshing
         # return prefs and prefs.preferences.server_address and not _is_refreshing
-        return prefs and prefs.preferences.server_address # Simplified for sync check
+        return prefs and prefs.preferences.server_address and not sg_modal_active(context) # Simplified for sync check
 
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
@@ -600,7 +606,7 @@ class RefreshControlNetMappings(bpy.types.Operator):
     def poll(cls, context):
         # Can run if server address is set
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address
+        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -1097,7 +1103,7 @@ class RefreshCheckpointList(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address
+        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -1156,12 +1162,19 @@ class RefreshCheckpointList(bpy.types.Operator):
                 _cached_checkpoint_architecture = arch
                 print(f"Checkpoint refresh: {len(items)} {desc}(s) found.")
 
-            # Reset model_name if current selection is no longer valid
+            # Reset model_name if current selection is no longer valid.
+            # Prefer the sg_model_name_backup (plain StringProperty) which
+            # survives file loads even when the dynamic Enum items were stale.
             scene = bpy.context.scene if hasattr(bpy.context, 'scene') else None
             if scene:
-                current = scene.model_name
                 valid_ids = {it[0] for it in _cached_checkpoint_list}
-                if current not in valid_ids:
+                backup = getattr(scene, 'sg_model_name_backup', '')
+                if backup and backup in valid_ids:
+                    # Restore from backup — this is the value that was
+                    # selected before the file was saved / queue snapshot.
+                    if scene.model_name != backup:
+                        scene.model_name = backup
+                elif scene.model_name not in valid_ids:
                     placeholder = next((it[0] for it in _cached_checkpoint_list
                                         if it[0].startswith("NO_") or it[0] == "NONE_FOUND"), None)
                     if placeholder:
@@ -1189,7 +1202,7 @@ class RefreshLoRAList(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address
+        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -1272,6 +1285,10 @@ class AddControlNetUnit(bpy.types.Operator):
         update=update_parameters
     ) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
+
     def invoke(self, context, event):
         # Always prompt for unit type and model selection
         return context.window_manager.invoke_props_dialog(self)
@@ -1315,6 +1332,10 @@ class RemoveControlNetUnit(bpy.types.Operator):
         default='depth',
         update=update_parameters
     )  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
 
     def invoke(self, context, event):
         units = context.scene.controlnet_units
@@ -1375,7 +1396,7 @@ class AddLoRAUnit(bpy.types.Operator):
             cls.poll_message_set("All available distinct LoRA models appear to have corresponding units.")
             return False
             
-        return True
+        return not sg_modal_active(context)
 
     def execute(self, context):
         loras = context.scene.lora_units
@@ -1434,8 +1455,9 @@ class RemoveLoRAUnit(bpy.types.Operator):
     def poll(cls, context):
         scene = context.scene
         # Operator can run if there are LoRA units AND the current index is valid
-        return len(scene.lora_units) > 0 and \
-               0 <= scene.lora_units_index < len(scene.lora_units)
+        return (len(scene.lora_units) > 0 and
+                0 <= scene.lora_units_index < len(scene.lora_units)
+                and not sg_modal_active(context))
 
     def execute(self, context):
         loras = context.scene.lora_units
@@ -1494,7 +1516,8 @@ def _sg_queue_save(processing=False, current_idx=0, phase='idle'):
         'sg_queue_gif_interpolation', 'sg_queue_gif_use_hdri',
         'sg_queue_gif_hdri_path', 'sg_queue_gif_hdri_strength',
         'sg_queue_gif_hdri_rotation', 'sg_queue_gif_env_mode',
-        'sg_queue_gif_shadow_plane', 'sg_queue_gif_denoiser',
+        'sg_queue_gif_denoiser', 'sg_queue_gif_use_gpu',
+        'sg_queue_gif_also_no_pbr',
     )
     for key in _GIF_KEYS:
         if hasattr(wm, key):
@@ -1771,11 +1794,16 @@ def register():
         ],
         default='FIXED'
     )
-    bpy.types.WindowManager.sg_queue_gif_shadow_plane = bpy.props.BoolProperty(
-        name="Ground Shadow", default=False
-    )
     bpy.types.WindowManager.sg_queue_gif_denoiser = bpy.props.BoolProperty(
         name="Denoise", default=True
+    )
+    bpy.types.WindowManager.sg_queue_gif_use_gpu = bpy.props.BoolProperty(
+        name="GPU Compute", default=True,
+        description="Use GPU for Cycles rendering (Blender 5.1+ only)"
+    )
+    bpy.types.WindowManager.sg_queue_gif_also_no_pbr = bpy.props.BoolProperty(
+        name="Also Export Without PBR", default=False,
+        description="After the main GIF export, disable PBR, reproject, and export a second GIF with emission-only shading (1 sample)"
     )
 
     def initial_refresh():
@@ -1806,8 +1834,24 @@ def register():
 
     bpy.types.Scene.comfyui_prompt = bpy.props.StringProperty(
         name="ComfyUI Prompt",
-        description="Text prompt for generation. Use || to separate generation (left) from texturing (right) prompt",
+        description="Text prompt for generation (also used for texturing unless a separate texture prompt is provided)",
         default="gold cube",
+        update=update_parameters
+    )
+    bpy.types.Scene.use_separate_texture_prompt = bpy.props.BoolProperty(
+        name="Use Separate Texture Prompt",
+        description="Enable a dedicated prompt field for the texturing pass instead of reusing the main prompt",
+        default=False,
+        update=update_parameters
+    )
+    bpy.types.Scene.texture_prompt = bpy.props.StringProperty(
+        name="Texture Prompt",
+        description="Prompt used for the per-camera texturing step. "
+                    "Avoid view-specific details here (e.g. 'logo on the front') — "
+                    "this prompt is applied from every camera angle. "
+                    "Describe side-specific features in the main prompt or in per-camera prompts instead. "
+                    "When empty, the main prompt is used",
+        default="",
         update=update_parameters
     )
     bpy.types.Scene.comfyui_negative_prompt = bpy.props.StringProperty(
@@ -1821,6 +1865,15 @@ def register():
         description="Select the SDXL checkpoint",
         items=update_model_list,
         update=update_parameters
+    )
+    # Plain-string mirror of model_name so the value survives file loads
+    # even when the dynamic EnumProperty items callback returns a stale
+    # list (e.g. during queue processing across different architectures).
+    bpy.types.Scene.sg_model_name_backup = bpy.props.StringProperty(
+        name="Model Name Backup",
+        description="Internal: stores the last known-good model_name identifier",
+        default="",
+        options={'HIDDEN'},
     )
     bpy.types.Scene.seed = bpy.props.IntProperty(
         name="Seed",
@@ -3045,15 +3098,6 @@ def register():
         update=update_parameters
     )
     
-    bpy.types.Scene.apply_bsdf = bpy.props.BoolProperty(
-        name ="Apply BSDF",
-        description="""Apply the BSDF shader to the material
-    - when set to FALSE, the material will be emissive and will not be affected by the scene lighting
-    - when set to TRUE, the material will be affected by the scene lighting""",
-        default=False,
-        update=update_parameters
-    )
-    
     bpy.types.Scene.generation_mode = bpy.props.EnumProperty(
         name="Generation Mode",
         description="Controls the generation behavior",
@@ -3285,8 +3329,8 @@ def register():
         name="Max Tokens",
         description="Max sparse-voxel tokens during cascade upsampling (only affects cascade modes). "
                     "Higher = more detail but more VRAM. "
-                    "Try 32768 or 24576 if running out of VRAM",
-        default=49152,
+                    "Increase to 49152 for maximum detail if VRAM allows",
+        default=32768,
         min=16384,
         max=65536,
         step=4096,
@@ -3334,12 +3378,6 @@ def register():
     bpy.types.Scene.trellis2_skip_texture = bpy.props.BoolProperty(
         name="Skip Texture",
         description="Export shape-only mesh (no PBR textures). Much faster and uses less VRAM",
-        default=False,
-        update=update_parameters
-    )
-    bpy.types.Scene.trellis2_low_vram = bpy.props.BoolProperty(
-        name="Low VRAM BG Removal",
-        description="Use low VRAM mode for background removal (BiRefNet)",
         default=False,
         update=update_parameters
     )
@@ -3426,26 +3464,6 @@ def register():
         default=True,
         update=update_parameters
     )
-    bpy.types.Scene.pbr_normal_mode = bpy.props.EnumProperty(
-        name="Normal Mode",
-        description="How to apply the predicted normal map to the mesh",
-        items=[
-            ('world', "World Space",
-             "Camera-space normals are converted to world space. "
-             "Works on any geometry (no tangent frame needed). "
-             "Best general-purpose mode"),
-            ('bump', "Bump from Normal",
-             "Convert the normal map to a bump/height map. "
-             "Works on any geometry including voxel remesh, "
-             "but loses directional detail"),
-            ('tangent', "Tangent Space",
-             "Standard tangent-space normal map. "
-             "Best quality on properly UV-unwrapped meshes, "
-             "may show triangle artifacts on voxel-remeshed geometry"),
-        ],
-        default='world',
-        update=update_parameters,
-    )
     bpy.types.Scene.pbr_normal_strength = bpy.props.FloatProperty(
         name="Normal Strength",
         description="How strongly the normal map perturbs the surface shading. "
@@ -3528,10 +3546,6 @@ def register():
             ('hsv',       "HSV Threshold",
              "Isolate pixels with high saturation + high value in HSV "
              "space.  Fast, zero model cost, best for neon/sci-fi styles"),
-            ('vlm_seg',   "VLM Segmentation",
-             "Use Grounding DINO + SAM 2 to segment objects matching "
-             "emissive keywords (neon, screen, fire, LED …). Context-aware "
-             "but requires GroundingDINO + SAM2 ComfyUI nodes"),
         ],
         default='residual',
         update=update_parameters
@@ -3582,18 +3596,10 @@ def register():
         precision=1,
         update=update_parameters
     )
-    bpy.types.Scene.pbr_emission_keywords = bpy.props.StringProperty(
-        name="Emission Keywords",
-        description="(VLM Segmentation method) Comma-separated keywords "
-                    "for Grounding DINO to search for emissive objects",
-        default="neon sign, LED, fire, candle flame, screen display, "
-                "laser, hologram, glowing crystal",
-        update=update_parameters
-    )
     bpy.types.Scene.pbr_emission_strength = bpy.props.FloatProperty(
         name="Emission Strength",
         description="Strength of the emission channel in the Principled BSDF",
-        default=5.0,
+        default=2.5,
         min=0.0,
         max=100.0,
         step=0.5,
@@ -3707,6 +3713,24 @@ def register():
         max=10,
         update=update_parameters
     )
+    bpy.types.Scene.pbr_albedo_auto_saturation = bpy.props.BoolProperty(
+        name="Correct Albedo Saturation",
+        description="Automatically correct albedo saturation by comparing the PBR albedo "
+                    "against the original rendered image and boosting to match. "
+                    "Averaged across all cameras for uniform results by default. "
+                    "Recommended for Marigold IID (Flat Albedo) which tends to desaturate. "
+                    "Usually not needed for StableDelight or IID-Lighting",
+        default=True,
+        update=update_parameters
+    )
+    bpy.types.Scene.pbr_albedo_per_camera_saturation = bpy.props.BoolProperty(
+        name="Per Camera",
+        description="Compute saturation correction individually for each camera instead of "
+                    "averaging across all cameras. May produce slightly different albedo "
+                    "colours per view if the cameras have different lighting conditions",
+        default=False,
+        update=update_parameters
+    )
     bpy.types.Scene.pbr_replace_color_with_albedo = bpy.props.BoolProperty(
         name="Use Albedo as Base Color",
         description="Replace the projected colour texture with the albedo map. "
@@ -3753,6 +3777,14 @@ def register():
         max=10,
         update=update_parameters
     )
+    bpy.types.Scene.trellis2_artifact_fail_on_exhausted = bpy.props.BoolProperty(
+        name="Fail on Exhausted Retries",
+        description="When enabled, the generation will fail instead of proceeding with a "
+                    "potentially corrupt mesh if all artifact-filter retries are exhausted. "
+                    "In queue mode this counts as a failure and triggers a queue-level retry",
+        default=False,
+        update=update_parameters
+    )
 
 def unregister():   
     """     
@@ -3767,8 +3799,11 @@ def unregister():
 
     del bpy.types.Scene.use_flux_lora
     del bpy.types.Scene.comfyui_prompt
+    del bpy.types.Scene.use_separate_texture_prompt
+    del bpy.types.Scene.texture_prompt
     del bpy.types.Scene.comfyui_negative_prompt
     del bpy.types.Scene.model_name
+    del bpy.types.Scene.sg_model_name_backup
     del bpy.types.Scene.seed
     del bpy.types.Scene.control_after_generate
     del bpy.types.Scene.steps
@@ -3891,13 +3926,14 @@ def unregister():
         'pbr_map_emission', 'pbr_emission_method',
         'pbr_emission_threshold', 'pbr_emission_saturation_min',
         'pbr_emission_value_min', 'pbr_emission_bloom',
-        'pbr_emission_keywords', 'pbr_emission_strength',
-        'pbr_normal_mode', 'pbr_normal_strength',
+        'pbr_emission_strength',
+        'pbr_normal_strength',
         'pbr_delight_strength',
         'pbr_use_native_resolution', 'pbr_tiling',
         'pbr_tile_albedo', 'pbr_tile_material', 'pbr_tile_normal', 'pbr_tile_height',
         'pbr_tile_emission', 'pbr_tile_grid', 'pbr_tile_superres',
         'pbr_processing_resolution', 'pbr_denoise_steps', 'pbr_ensemble_size',
+        'pbr_albedo_auto_saturation', 'pbr_albedo_per_camera_saturation',
         'pbr_replace_color_with_albedo', 'pbr_auto_lighting',
         'pbr_model_variant',  # legacy, kept for compat
     ]
@@ -3931,10 +3967,11 @@ def unregister():
         'trellis2_texture_size', 'trellis2_decimation', 'trellis2_remesh',
         'trellis2_post_processing_enabled',
         'trellis2_auto_lighting',
-        'trellis2_skip_texture', 'trellis2_low_vram', 'trellis2_bg_removal', 'trellis2_background_color',
+        'trellis2_skip_texture', 'trellis2_bg_removal', 'trellis2_background_color',
         'trellis2_fill_holes',
         'trellis2_artifact_laplacian_sigma', 'trellis2_artifact_spike_abs_max',
-        'trellis2_artifact_max_retries', 'show_trellis2_artifact_filter',
+        'trellis2_artifact_max_retries', 'trellis2_artifact_fail_on_exhausted',
+        'show_trellis2_artifact_filter',
     ]
     for prop in trellis2_props:
         if hasattr(bpy.types.Scene, prop):
@@ -3954,7 +3991,8 @@ def unregister():
         'sg_queue_gif_interpolation', 'sg_queue_gif_use_hdri',
         'sg_queue_gif_hdri_path', 'sg_queue_gif_hdri_strength',
         'sg_queue_gif_hdri_rotation', 'sg_queue_gif_env_mode',
-        'sg_queue_gif_shadow_plane', 'sg_queue_gif_denoiser',
+        'sg_queue_gif_denoiser', 'sg_queue_gif_use_gpu',
+        'sg_queue_gif_also_no_pbr',
     ):
         if hasattr(bpy.types.WindowManager, attr):
             delattr(bpy.types.WindowManager, attr)

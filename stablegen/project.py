@@ -929,24 +929,7 @@ def project_image(context, to_project, mat_id, stop_index=1000000):
                 links.new(weight_nodes[0].outputs[0], compare_node.inputs[0])
                 links.new(compare_node.outputs[0], final_mix.inputs["Fac"])
             
-            if not context.scene.apply_bsdf:
-                return final_mix, compare_node
-                 
-            # Add a principle shader for the mixed color
-            should_add_principled = True
-            if is_local_edit:
-                # Final principled is at last_node's output if it is BSDF
-                final_principled = last_node.outputs[0].links[0].to_node
-                if final_principled.type == 'BSDF_PRINCIPLED':
-                    should_add_principled = False
-            
-            if should_add_principled:
-                final_principled = nodes_collection.new("ShaderNodeBsdfPrincipled")
-                final_principled.location = (x_offset, y_offset)
-                final_principled.inputs["Roughness"].default_value = 1.0
-                
-            links.new(final_mix.outputs[0], final_principled.inputs[0])
-            return final_principled, compare_node
+            return final_mix, compare_node
 
         # ── Helper: extract final weight output from a weight_node item ────
         def _get_weight_output(w_item, v_offset):
@@ -2152,9 +2135,9 @@ def project_pbr_to_bsdf(context, to_texture, pbr_maps, material_id=None):
                 break
 
         if principled is None:
-            # No BSDF exists (apply_bsdf is probably False).  Create one
-            # and rewire the existing colour output through it so that PBR
-            # channels have somewhere to connect.
+            # No BSDF exists yet.  Create one and rewire the existing
+            # colour output through it so that PBR channels have
+            # somewhere to connect.
             output_node = None
             for node in nodes:
                 if node.type == 'OUTPUT_MATERIAL':
@@ -2327,80 +2310,23 @@ def project_pbr_to_bsdf(context, to_texture, pbr_maps, material_id=None):
 
             if sp_type == 'normal':
                 normal_strength = getattr(scene, 'pbr_normal_strength', 0.5)
-                normal_mode = getattr(scene, 'pbr_normal_mode', 'world')
 
-                if normal_mode == 'world':
-                    # ── World-space Normal Map ────────────────────────
-                    # The normal images were already converted from
-                    # camera-space to world-space in
-                    # _convert_normals_cam_to_world().  Using the
-                    # WORLD space mode of the Normal Map node means
-                    # we don't rely on tangent frames, so this works
-                    # correctly on voxel-remeshed geometry.
-                    normal_map_node = nodes.new("ShaderNodeNormalMap")
-                    normal_map_node.space = 'WORLD'
-                    normal_map_node.location = (
-                        principled.location[0] - 300,
-                        principled.location[1] - 400)
-                    normal_map_node.label = "PBR Normal Map (World)"
-                    normal_map_node.inputs["Strength"].default_value = (
-                        normal_strength)
-                    links.new(sp_output, normal_map_node.inputs["Color"])
-                    if "Normal" in principled.inputs:
-                        links.new(normal_map_node.outputs["Normal"],
-                                  principled.inputs["Normal"])
-
-                elif normal_mode == 'bump':
-                    # ── Bump from Normal ──────────────────────────────
-                    # Convert the normal map to a height signal by
-                    # extracting luminance, then drive a Bump node.
-                    # This avoids tangent-space dependency so it works
-                    # on voxel-remeshed geometry without triangle seams.
-                    sep_node = nodes.new("ShaderNodeSeparateColor")
-                    sep_node.location = (
-                        principled.location[0] - 600,
-                        principled.location[1] - 400)
-                    sep_node.label = "PBR Normal → Channels"
-                    links.new(sp_output, sep_node.inputs["Color"])
-
-                    bump_node = nodes.new("ShaderNodeBump")
-                    bump_node.location = (
-                        principled.location[0] - 300,
-                        principled.location[1] - 400)
-                    bump_node.label = "PBR Bump from Normal"
-                    bump_node.inputs["Strength"].default_value = normal_strength
-                    bump_node.inputs["Distance"].default_value = 0.02
-                    # Use the Blue channel (Z/facing component) inverted
-                    # as a height proxy: flat areas → high blue → low
-                    # height; angled areas → low blue → high height.
-                    invert_z = nodes.new("ShaderNodeMath")
-                    invert_z.operation = 'SUBTRACT'
-                    invert_z.inputs[0].default_value = 1.0
-                    invert_z.location = (
-                        principled.location[0] - 450,
-                        principled.location[1] - 400)
-                    invert_z.label = "Invert Z"
-                    links.new(sep_node.outputs["Blue"],
-                              invert_z.inputs[1])
-                    links.new(invert_z.outputs["Value"],
-                              bump_node.inputs["Height"])
-
-                    if "Normal" in principled.inputs:
-                        links.new(bump_node.outputs["Normal"],
-                                  principled.inputs["Normal"])
-                else:
-                    # ── Tangent-space Normal Map ──────────────────────
-                    normal_map_node = nodes.new("ShaderNodeNormalMap")
-                    normal_map_node.location = (
-                        principled.location[0] - 300,
-                        principled.location[1] - 400)
-                    normal_map_node.label = "PBR Normal Map"
-                    normal_map_node.inputs["Strength"].default_value = (
-                        normal_strength)
-                    links.new(sp_output, normal_map_node.inputs["Color"])
-                    if "Normal" in principled.inputs:
-                        links.new(normal_map_node.outputs["Normal"],
-                                  principled.inputs["Normal"])
+                # World-space Normal Map — camera-space normals were
+                # already converted in _convert_normals_cam_to_world().
+                # Using WORLD space avoids tangent-frame dependency,
+                # so it works on voxel-remeshed geometry.
+                normal_map_node = nodes.new("ShaderNodeNormalMap")
+                normal_map_node.space = 'WORLD'
+                normal_map_node.location = (
+                    principled.location[0] - 300,
+                    principled.location[1] - 400)
+                normal_map_node.label = "PBR Normal Map (World)"
+                normal_map_node.inputs["Strength"].default_value = (
+                    normal_strength)
+                links.new(sp_output, normal_map_node.inputs["Color"])
+                if "Normal" in principled.inputs:
+                    links.new(normal_map_node.outputs["Normal"],
+                              principled.inputs["Normal"])
 
             elif sp_type == 'displacement':
                 # ── Displacement / Height Map ─────────────────────

@@ -625,16 +625,6 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
             },
         ]
     },
-    # --- VLM Emission (Grounding DINO + SAM 2) ---
-    "cn_comfyui_segment_anything": {
-        "id": "cn_comfyui_segment_anything", "type": "node",
-        "name": "ComfyUI Segment Anything (GroundingDINO + SAM)",
-        "git_url": "https://github.com/storyicon/comfyui_segment_anything.git",
-        "target_dir_relative": "custom_nodes",
-        "repo_name": "comfyui_segment_anything",
-        "license": "Apache 2.0", "packages": ["vlm_emission"],
-        "pip_packages": ["segment_anything"],
-    },
     # --- FLUX.2 Klein 4B ---
     "model_flux2_klein_4b": {
         "id": "model_flux2_klein_4b", "type": "model",
@@ -712,14 +702,7 @@ MENU_PACKAGES: Dict[str, Dict[str, Any]] = {
         "description_suffix": "*Installs ComfyUI_StableDelight_ll custom node + downloads the*\n"
                               "    *Stable-X/yoso-delight-v0-4-base model (~3.3GB fp16) for specular-free albedo.*",
     },
-    '11': {"name": "[VLM EMISSION] Grounding DINO + SAM Segmentation Node",
-        "tags": ["vlm_emission"],
-        "size_gb": 0.01,
-        "description_suffix": "*Installs comfyui_segment_anything custom node for VLM-driven emission extraction.*\n"
-                              "    *GroundingDINO_SwinB (~938MB) and sam_vit_h (~2.56GB) models are downloaded*\n"
-                              "    *automatically on first use.*",
-    },
-    '12': {"name": "[FLUX.2 KLEIN] Klein 4B FP8 + Qwen 3 Text Encoder + VAE",
+    '11': {"name": "[FLUX.2 KLEIN] Klein 4B FP8 + Qwen 3 Text Encoder + VAE",
         "tags": ["flux2_klein"],
         "size_gb": 12.4,
         "description_suffix": "*Downloads FLUX.2 Klein 4B FP8 diffusion model (~4.1GB), Qwen 3 4B text encoder bf16 (~8.0GB),*\n"

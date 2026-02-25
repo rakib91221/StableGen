@@ -20,12 +20,18 @@ from PIL import Image
 
 
 def _texturing_prompt(scene):
-    """Return the texturing portion of the prompt (after ``||`` if present).
+    """Return the texturing portion of the prompt.
 
-    Users can write ``generation prompt || texturing prompt`` to give a
-    different prompt to the per-camera texturing step.  When the separator
-    is absent the full prompt is returned unchanged.
+    Priority order:
+    1. Dedicated ``texture_prompt`` field (if the separate-prompt toggle is on
+       and the field is non-empty).
+    2. Legacy ``||`` separator in the main prompt (text after ``||``).
+    3. The full main prompt as-is.
     """
+    if getattr(scene, 'use_separate_texture_prompt', False):
+        tex = getattr(scene, 'texture_prompt', '').strip()
+        if tex:
+            return tex
     raw = scene.comfyui_prompt
     if '||' in raw:
         return raw.split('||', 1)[1].strip()
@@ -33,11 +39,15 @@ def _texturing_prompt(scene):
 
 
 def _generation_prompt(scene):
-    """Return the generation portion of the prompt (before ``||`` if present).
+    """Return the generation / mesh-creation portion of the prompt.
 
-    See :func:`_texturing_prompt` for the separator convention.
+    When the separate-texture-prompt toggle is on the entire main prompt is
+    treated as the generation prompt (no ``||`` splitting).  Otherwise the
+    legacy ``||`` separator is respected.
     """
     raw = scene.comfyui_prompt
+    if getattr(scene, 'use_separate_texture_prompt', False):
+        return raw.strip()
     if '||' in raw:
         return raw.split('||', 1)[0].strip()
     return raw
@@ -1146,11 +1156,18 @@ class WorkflowManager:
 
     @staticmethod
     def _cleanup_trellis2_temp_files():
-        """Remove TRELLIS2 IPC temp directories and voxelgrid cache files.
+        """Remove stale TRELLIS2 IPC temp directories and voxelgrid cache.
 
-        The ComfyUI-TRELLIS2 custom node saves intermediate tensors and
-        voxelgrid data to disk but never deletes them, gradually filling
-        the system temp directory.  This method cleans up both locations.
+        The ComfyUI-TRELLIS2 custom node creates one temp directory
+        (``trellis2_<random>``) per worker subprocess via a module-level
+        global and reuses it for the entire ComfyUI session.  Deleting
+        that directory while the worker is alive causes "Parent directory
+        does not exist" errors on the next generation.
+
+        Since only the most recently created directory can belong to the
+        current (running) worker, we delete all *older* ``trellis2_*``
+        directories entirely and only clean up the stale ``.pt`` tensor
+        files inside the newest one, leaving the directory itself intact.
         """
         import tempfile
         import glob
@@ -1158,13 +1175,30 @@ class WorkflowManager:
 
         tmp_root = tempfile.gettempdir()
 
-        # IPC tensor directories: <tempdir>/trellis2_*/
-        for d in glob.glob(os.path.join(tmp_root, 'trellis2_*')):
-            if os.path.isdir(d):
+        dirs = sorted(
+            (d for d in glob.glob(os.path.join(tmp_root, 'trellis2_*'))
+             if os.path.isdir(d)),
+            key=os.path.getctime,
+        )
+
+        if not dirs:
+            return
+
+        # Everything except the newest is from a dead worker — remove entirely.
+        for d in dirs[:-1]:
+            try:
+                shutil.rmtree(d)
+            except OSError:
+                pass
+
+        # Newest directory may be in use — only purge .pt files inside it.
+        newest = dirs[-1]
+        for f in os.listdir(newest):
+            if f.endswith('.pt'):
                 try:
-                    shutil.rmtree(d)
+                    os.remove(os.path.join(newest, f))
                 except OSError:
-                    pass  # Still locked by worker — ignore
+                    pass
 
         # Voxelgrid cache (Windows: C:\tmp\trellis2_cache)
         for cache_dir in ('/tmp/trellis2_cache', r'C:\tmp\trellis2_cache'):
@@ -2426,6 +2460,15 @@ class WorkflowManager:
                     "On the ComfyUI host, delete C:\\Users\\<USERNAME>\\.triton\\cache "
                     "and restart ComfyUI."
                 )
+            fail_on_exhausted = getattr(context.scene, 'trellis2_artifact_fail_on_exhausted', False)
+            if fail_on_exhausted:
+                error_msg = (
+                    "Mesh artifact check failed after all retries. "
+                    "Generation aborted (Fail if Unresolved is enabled)."
+                )
+                print(f"[TRELLIS2] ERROR: {error_msg}")
+                self.operator._error = error_msg
+                return {"error": error_msg}
             print(f"[TRELLIS2] WARNING: {warning_msg}")
             self.operator._warning = warning_msg
             return result
@@ -2496,7 +2539,7 @@ class WorkflowManager:
             prompt[NODES['get_conditioning']]["inputs"]["image"] = [NODES['input_image'], 0]
             prompt[NODES['get_conditioning']]["inputs"]["mask"] = [NODES['input_image'], 1]
         else:
-            prompt[NODES['remove_bg']]["inputs"]["low_vram"] = scene.trellis2_low_vram
+            prompt[NODES['remove_bg']]["inputs"]["low_vram"] = False
 
         # Configure conditioning
         prompt[NODES['get_conditioning']]["inputs"]["background_color"] = scene.trellis2_background_color

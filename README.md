@@ -4,9 +4,9 @@
 [![Blender Version](https://img.shields.io/badge/Blender-4.2+%20%7C%205.1%2B-orange.svg)](#system-requirements)
 [![GitHub All Releases](https://img.shields.io/github/downloads/sakalond/stablegen/total?color=brightgreen&label=Downloads)](https://github.com/sakalond/stablegen/releases)
 
-**Create 3D assets from images and prompts, then texture and refine them — all inside Blender.**
+**Create 3D assets from images and prompts, then texture and refine them - all inside Blender.**
 
-StableGen is an open-source Blender addon that brings generative AI into your 3D workflow. **Generate** fully textured 3D meshes from a single image or text prompt via [TRELLIS.2](https://github.com/microsoft/TRELLIS.2), then **texture and refine** them — or any existing model — using SDXL, FLUX.1-dev, or Qwen Image Edit through a flexible [ComfyUI](https://github.com/comfyanonymous/ComfyUI) backend.
+StableGen is an open-source Blender addon that brings generative AI into your 3D workflow. **Generate** fully textured 3D meshes from a single image or text prompt via [TRELLIS.2](https://github.com/microsoft/TRELLIS.2), then **texture and refine** them - or any existing model - using SDXL, FLUX.1-dev, or Qwen Image Edit through a flexible [ComfyUI](https://github.com/comfyanonymous/ComfyUI) backend.
 
 ---
 
@@ -19,6 +19,8 @@ StableGen is an open-source Blender addon that brings generative AI into your 3D
 - [💻 System Requirements](#-system-requirements)
 - [⚙️ Installation](#️-installation)
 - [🚀 Quick Start Guide](#-quick-start-guide)
+  - [Texturing an Existing Model](#texturing-an-existing-model)
+  - [Generating a 3D Model with TRELLIS.2](#generating-a-3d-model-with-trellis2)
 - [📖 Usage & Parameters Overview](#-usage--parameters-overview)
 - [📁 Output Directory Structure](#-output-directory-structure)
 - [🤔 Troubleshooting](#-troubleshooting)
@@ -54,12 +56,12 @@ StableGen brings AI-powered 3D generation and texturing directly into Blender:
     * Sophisticated weighted blending ensures smooth transitions between views.
 * 📷 **Advanced Camera Placement:**
     * **7 placement strategies:** Orbit Ring, Fan Arc, Hemisphere, PCA-Axis, Normal-Weighted K-means, Greedy Occlusion Coverage, and Interactive Visibility-Weighted placement.
-    * **Per-camera optimal aspect ratios** — each camera gets its own resolution computed from the mesh's silhouette, so no pixels are wasted on letterboxing.
-    * **Unlimited cameras** — no more 8-camera limit.
-    * **Camera generation order** — drag-and-drop reorder list with 6 preset strategies to control the processing order in Sequential mode.
+    * **Per-camera optimal aspect ratios** - each camera gets its own resolution computed from the mesh's silhouette, so no pixels are wasted on letterboxing.
+    * **Unlimited cameras** - no more 8-camera limit.
+    * **Camera generation order** - drag-and-drop reorder list with 6 preset strategies to control the processing order in Sequential mode.
     * Camera cloning, mirroring, and floating viewport prompt labels.
 * 🎯 **Local Edit Mode:**
-    * Point cameras at specific areas to modify — new texture blends seamlessly over the original using angle-based and vignette-based feathering.
+    * Point cameras at specific areas to modify - new texture blends seamlessly over the original using angle-based and vignette-based feathering.
     * Separate angle ramp and silhouette edge feathering controls for precise blending.
     * Works with all architectures (SDXL, Flux, Qwen Image Edit).
 * 📐 **Precise Geometric Control with ControlNet:**
@@ -96,9 +98,94 @@ See what StableGen can do!
 
 ---
 
-### Showcase 1: Head Model Stylization with IPAdapter
+### Showcase 1: Text-to-3D (SDXL)
 
-This showcase demonstrates how StableGen can texture the model using a standard prompt and then with style guidance from an IPAdapter image reference.
+Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with SDXL-based texturing.
+
+| | | | |
+| :------: | :------: | :------: | :------: |
+| <img src="docs/img/trellis2/sdxl_dragon.gif" alt="Fantasy dragon" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard character" width="200"> | <img src="docs/img/trellis2/sdxl_hut.gif" alt="Hut" width="200"> | <img src="docs/img/trellis2/sdxl_telescope.gif" alt="Telescope" width="200"> |
+| *Dragon* | *Wizard* | *Hut* | *Telescope* |
+| <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | | | |
+| *Robot* | | | |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Dragon:** *"TODO"*
+2. **Wizard:** *"TODO"*
+3. **Hut:** *"TODO"*
+4. **Telescope:** *"TODO"*
+5. **Robot:** *"TODO"*
+
+</details>
+
+
+### Showcase 2: Text-to-3D (Qwen)
+
+Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing — well-suited for stylized objects and crisp details.
+
+| | | | |
+| :------: | :------: | :------: | :------: |
+| <img src="docs/img/trellis2/qwen_barrel.gif" alt="Barrel" width="200"> | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest" width="200"> | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk" width="200"> |
+| *Barrel* | *Chest* | *Crate* | *Obelisk* |
+| <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | | | |
+| *Robot* | | | |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Barrel:** *"TODO"*
+2. **Chest:** *"TODO"*
+3. **Crate:** *"TODO"*
+4. **Obelisk:** *"TODO"*
+5. **Robot:** *"TODO"*
+
+</details>
+
+
+### Showcase 3: PBR Comparison
+
+PBR material maps (roughness, metallic, normal) can be generated via Marigold decomposition. Each pair shows the same object without and with PBR materials.
+
+| Non-PBR | PBR | Non-PBR | PBR |
+| :------: | :------: | :------: | :------: |
+| <img src="docs/img/trellis2/qwen_house.gif" alt="House (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_house_pbr.gif" alt="House (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard_pbr.gif" alt="Wizard (PBR)" width="200"> |
+| <small>Qwen — House</small> | <small>Qwen — House (PBR)</small> | <small>SDXL — Wizard</small> | <small>SDXL — Wizard (PBR)</small> |
+| <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
+| <small>Qwen — Chest</small> | <small>Qwen — Chest (PBR)</small> | <small>Qwen — Obelisk</small> | <small>Qwen — Obelisk (PBR)</small> |
+
+
+### Showcase 4: PBR Gallery
+
+A selection of assets with PBR materials enabled, demonstrating realistic surface response under varying lighting.
+
+| | | | |
+| :------: | :------: | :------: | :------: |
+| <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_vending_machine_pbr.gif" alt="Vending machine (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> |
+| *Pot of Gold* | *Vending Machine* | *Astrolabe* | *Tree Stump* |
+| <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_obelisk_pbr.gif" alt="Obelisk SDXL (PBR)" width="200"> |
+| *Rabbit* | *Crate* | *Obelisk (Qwen)* | *Obelisk (SDXL)* |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Pot of Gold:** *"TODO"*
+2. **Vending Machine:** *"TODO"*
+3. **Astrolabe:** *"TODO"*
+4. **Tree Stump:** *"TODO"*
+5. **Rabbit:** *"TODO"*
+6. **Crate:** *"TODO"*
+7. **Obelisk (Qwen):** *"TODO"*
+8. **Obelisk (SDXL):** *"TODO"*
+
+</details>
+
+---
+
+### Showcase 5: Head Stylization
+
+Texturing an existing model using prompts and style guidance from an IPAdapter image reference.
 
 **3D Model Source:** "Brown" by ucupumar - Available at: [BlendSwap (Blend #15262)](https://www.blendswap.com/blend/15262)
 
@@ -115,9 +202,9 @@ This showcase demonstrates how StableGen can texture the model using a standard 
 </p>
 
 
-### Showcase 2: Car Asset Texturing
+### Showcase 6: Car Texturing
 
-This showcase demonstrates how StableGen can texture a car model using different textual prompts implying various visual styles.
+Texturing a car model using different prompts to achieve various visual styles.
 
 **3D Model Source:** "Pontiac GTO 67" by thecali - Available at: [BlendSwap (Blend #13575)](https://www.blendswap.com/blend/13575)
 
@@ -127,9 +214,9 @@ This showcase demonstrates how StableGen can texture a car model using different
 | *Base Untextured Model* | <small>Prompt: "green car"</small>    |   <small>Prompt: "steampunk style car"</small>  |   <small>Prompt: "stealth black car"</small>      |
 
 
-### Showcase 3: Subway Scene Asset Texturing
+### Showcase 7: Scene Texturing
 
-This showcase demonstrates how StableGen can texture a more complex scene consisting of many mesh objects.
+Texturing a complex scene consisting of many mesh objects.
 
 **3D Model Source:** "Subway Station Entrance" by argonius - Available at: [BlendSwap (Blend #19305)](https://www.blendswap.com/blend/19305)
 
@@ -211,7 +298,7 @@ The `installer.py` script (found in this repository) automates the download and 
     * It will download and place files into the correct subdirectories of `<YourComfyUIDirectory>`.
 4.  **Restart ComfyUI:** If ComfyUI was running, restart it to load new custom nodes.
 
-*(For manual dependency installation—including FLUX.1-dev and Qwen Image Edit setups—see `docs/MANUAL_INSTALLATION.md`.)*
+*(For manual dependency installation-including FLUX.1-dev and Qwen Image Edit setups-see `docs/MANUAL_INSTALLATION.md`.)*
 
 ### Step 3: Install StableGen Blender Plugin
 
@@ -235,6 +322,8 @@ The `installer.py` script (found in this repository) automates the download and 
 
 ## 🚀 Quick Start Guide
 
+### Texturing an Existing Model
+
 Here’s how to get your first texture generated with StableGen:
 
 1.  **Start ComfyUI Server:** Make sure it's running in the background.
@@ -254,6 +343,27 @@ Here’s how to get your first texture generated with StableGen:
 7.  **Observe:** Watch the progress in the panel and the ComfyUI console. Your object should update with the new texture! Output files will be in your specified "Output Directory".
     * By default, the generated texture will only be visible in the Rendered viewport shading mode (CYCLES Render Engine).
 
+### Generating a 3D Model with TRELLIS.2
+
+Follow these steps to generate a fully textured 3D mesh from a text prompt or reference image using the TRELLIS.2 pipeline:
+
+1.  **Prerequisites:** Make sure you have the TRELLIS.2 dependencies installed (see [Installation - Step 2](#step-2-install-dependencies-custom-nodes--ai-models---automated-recommended)) and that your hardware meets the [System Requirements](#-system-requirements).
+2.  **Choose a Preset:** Select and apply one of the **(MESH + TEXTURE)** labeled presets:
+    * **SDXL** - best for creative, prompt-driven workflows.
+    * **Qwen Image Edit** - well-suited for stylized generations, legible text, and specific details. Particularly effective for image-to-3D workflows (turning a picture into a 3D model).
+    * Hover over any preset in Blender for a detailed description of what it does.
+    * Alternatively, use the **TRELLIS.2 (MESH ONLY)** preset if you only need the generated mesh without automatic texturing.
+3.  **Select Input Mode:** Set the **`Generate from`** field to **`Prompt`** for text-to-3D, or **`Image`** to use a reference image.
+4.  **Provide Input:** Write a descriptive prompt or load a reference image.
+5.  *(Optional)* **Enable PBR:** Turn on **PBR generation** under *Advanced Parameters → Output & Material Settings* to produce physically-based material maps (roughness, metallic, normal).
+6.  **Generate:** Click the main **Generate** button and wait for the process to complete.
+7.  *(Optional)* **Refine the Result:** Adjust per-camera prompts and regenerate specific views, or switch to **Local Edit** mode (a preset is available) for targeted touch-ups.
+
+**Exporting for a Game Engine:**
+
+8.  **Bake Textures:** You will most likely need to toggle UV unwrapping (within the `Bake Textures` operator) - the `Smart UV Project` mode works well in most cases.
+9.  **Export:** Use the built-in export tool `Export for Game Engine` or export manually from Blender.
+
 ---
 
 ## 📖 Usage & Parameters Overview
@@ -266,7 +376,7 @@ These are the main operational buttons and initial setup tools, generally found 
 
 * **Generate / Cancel Generation (Main Button):** This is the primary button to start the AI texture generation process for meshe objects based on your current settings. It communicates with the ComfyUI backend. While processing, the button changes to "Cancel Generation," allowing you to stop the current task. Progress bars will appear below this button during generation.
 * **Bake Textures:** Converts the dynamic, multi-projection material StableGen creates on your meshes into a single, standard UV-mapped image texture per object. This is essential for exporting or simplifying scenes. You can set the resolution and UV unwrapping method for the bake. This option is crucial for finalizing your AI-generated textures into a portable format.
-* **Add Cameras:** Set up multiple viewpoints using one of 7 placement strategies — from simple orbit rings to geometry-aware occlusion-optimized placement with per-camera aspect ratios. Use the interactive preview to fine-tune placement before confirming.
+* **Add Cameras:** Set up multiple viewpoints using one of 7 placement strategies - from simple orbit rings to geometry-aware occlusion-optimized placement with per-camera aspect ratios. Use the interactive preview to fine-tune placement before confirming.
 * **Collect Camera Prompts:** Cycles through all cameras in your scene, allowing you to type a specific descriptive text prompt for each viewpoint (e.g., "front view," "close-up on face"). These per-camera prompts are used in conjunction with the main prompt if `Use camera prompts` is enabled in `Viewpoint Blending Settings`.
 
 ### Preset Management
@@ -289,7 +399,7 @@ These are your primary controls for defining the generation:
     * `Generate Sequentially`: Viewpoints generate one by one, using inpainting from previous views for consistency.
     * `Generate Using Grid`: Combines all views into a grid for a single generation pass, with an optional refinement step.
     * `Refine/Restyle Texture (Img2Img)`: Uses the current texture as input for an image-to-image process.
-    * `Local Edit`: Selectively modify specific areas by pointing cameras at them — new texture blends over the original with feathered edges.
+    * `Local Edit`: Selectively modify specific areas by pointing cameras at them - new texture blends over the original with feathered edges.
     * `UV Inpaint Missing Areas`: Fills untextured areas on a UV map via inpainting.
 * **Target Objects:** Choose whether to texture all visible mesh objects or only selected ones.
 
@@ -332,7 +442,7 @@ StableGen organizes the generated files within the `Output Directory` specified 
                 * `depth/` *(Depth pass renders)*
                 * `canny/` *(Renders processed using Canny edge decetor)*
                 * `normal/` *(Normal pass renders)*
-            * `baked/` *(Textures baked onto UV maps using the standalone `Bake Textures` tool)*
+            * `baked/` *(Textures baked onto UV maps using the standalone `Bake Textures` tool, exported `.glb` files from the `Export for Game Engine` tool)*
             * `generated_baked/` *(Textures baked as part of the generation process if "Bake Textures While Generating" is enabled)*
             * `inpaint/` *(Files related to inpainting processes, e.g., for `Sequential mode`)*
                 * `render/` *(Renders of previous state used as context for inpainting)*
@@ -407,11 +517,11 @@ The TRELLIS.2 feature relies on several third-party components, each with its ow
 | [nvdiffrast](https://github.com/NVlabs/nvdiffrast) (NVIDIA) | NVIDIA Source Code License | ❌ **Non-commercial only** |
 | [nvdiffrec](https://github.com/NVlabs/nvdiffrec) (NVIDIA) | NVIDIA Source Code License | ❌ **Non-commercial only** |
 
-**Important:** The NVIDIA libraries (`nvdiffrast` and `nvdiffrec`) are only used when the TRELLIS.2 **Texture Mode** is set to **"Native (TRELLIS.2)"** — specifically for UV rasterization and PBR texture baking. Their license restricts usage to *"research or evaluation purposes only and not for any direct or indirect monetary gain"* (Section 3.3). Only NVIDIA and its affiliates may use these libraries commercially.
+**Important:** The NVIDIA libraries (`nvdiffrast` and `nvdiffrec`) are only used when the TRELLIS.2 **Texture Mode** is set to **"Native (TRELLIS.2)"** - specifically for UV rasterization and PBR texture baking. Their license restricts usage to *"research or evaluation purposes only and not for any direct or indirect monetary gain"* (Section 3.3). Only NVIDIA and its affiliates may use these libraries commercially.
 
-**All other TRELLIS.2 modes do not introduce NVIDIA licensing restrictions:**
-* **Shape-only mode ("None")** — does not use nvdiffrast/nvdiffrec. All other pipeline components are permissively licensed (MIT/Apache 2.0 + DINOv3 License).
-* **Projection-based texture modes ("SDXL", "Flux 1", "Qwen Image Edit")** — does not use nvdiffrast/nvdiffrec. The licensing terms of the selected diffusion model apply as usual (e.g., FLUX.1-dev has its own license terms separate from the TRELLIS.2 pipeline).
+**All other TRELLIS.2 modes do not introduce licensing restrictions:**
+* **Shape-only mode ("None")** - does not use nvdiffrast/nvdiffrec. All other pipeline components are permissively licensed (MIT/Apache 2.0 + DINOv3 License).
+* **Projection-based texture modes ("SDXL", "Flux 1", "Qwen Image Edit")** - does not use nvdiffrast/nvdiffrec. The licensing terms of the selected diffusion model apply as usual (e.g., FLUX.1-dev has its own license terms separate from the TRELLIS.2 pipeline).
 
 If you require commercial use of the "Native (TRELLIS.2)" texture mode, consider contacting NVIDIA regarding commercial licensing for nvdiffrast/nvdiffrec.
 
@@ -455,13 +565,11 @@ The open spirit of the AI and open-source communities is what makes projects lik
 ## 💡 List of planned features
 
 Here are some features we plan to implement in the future (in no particular order):
-* **Advanced IPAdapter support:** Support for custom IPAdapter models, support for advanced IPAdapter parameters.
 * **Upscaling:** Support for upscaling generated textures.
 * **Custom VAE, CLIP model selection:** Ability to select custom VAE and CLIP models in addition to custom ControlNet and LoRA models.
 * **Refine mode improvements:** Features like brush based inpainting.
-* **Z-Image support** (and eventual Z-Image editing model support)
-* **Mesh generation:** Integration of mesh generation capabilities (TRELLIS.2 support now available as experimental feature).
 * **Brush-based inpainting:** Paint masks directly on the viewport for targeted local edits.
+* **Better remeshing for TRELLIS.2:** Implementing more advanced remeshing techniques to improve the quality of generated meshes.
 
 If you have any suggestions, please feel free to open an issue!
 

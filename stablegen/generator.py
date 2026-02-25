@@ -634,6 +634,16 @@ class ComfyUIGenerate(bpy.types.Operator):
             context.scene.generation_method = 'sequential' # Force sequential for edit models
 
         render = bpy.context.scene.render
+
+        # Force 100% resolution scale so depth/guide map renders match the
+        # base resolution_x × resolution_y.  The Qwen workflow derives its
+        # output size from the uploaded guidance map, so a non-100% percentage
+        # causes it to generate at the wrong resolution.
+        self._original_resolution_percentage = render.resolution_percentage
+        self._original_resolution_x = render.resolution_x
+        self._original_resolution_y = render.resolution_y
+        render.resolution_percentage = 100
+
         resolution_x = render.resolution_x
         resolution_y = render.resolution_y
         total_pixels = resolution_x * resolution_y
@@ -676,6 +686,9 @@ class ComfyUIGenerate(bpy.types.Operator):
             context.scene.generation_status = 'idle'
             context.scene.sg_last_gen_error = True
             ComfyUIGenerate._is_running = False
+            render.resolution_percentage = self._original_resolution_percentage
+            render.resolution_x = self._original_resolution_x
+            render.resolution_y = self._original_resolution_y
             return {'CANCELLED'}
         # Sort cameras by name
         self._cameras.sort(key=lambda x: x.name)
@@ -723,6 +736,9 @@ class ComfyUIGenerate(bpy.types.Operator):
             context.scene.generation_status = 'idle'
             context.scene.sg_last_gen_error = True
             ComfyUIGenerate._is_running = False
+            render.resolution_percentage = self._original_resolution_percentage
+            render.resolution_x = self._original_resolution_x
+            render.resolution_y = self._original_resolution_y
             return {'CANCELLED'}
         
         # If there are curves within the scene, warn the user
@@ -744,6 +760,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                 context.scene.generation_status = 'idle'
                 context.scene.sg_last_gen_error = True
                 ComfyUIGenerate._is_running = False
+                render.resolution_percentage = self._original_resolution_percentage
+                render.resolution_x = self._original_resolution_x
+                render.resolution_y = self._original_resolution_y
                 return {'CANCELLED'}
         else: # all
             self._to_texture = [obj for obj in bpy.context.view_layer.objects if obj.type == 'MESH' and not obj.hide_get()]
@@ -763,6 +782,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                 context.scene.generation_status = 'idle'
                 context.scene.sg_last_gen_error = True
                 ComfyUIGenerate._is_running = False
+                render.resolution_percentage = self._original_resolution_percentage
+                render.resolution_x = self._original_resolution_x
+                render.resolution_y = self._original_resolution_y
                 return {'CANCELLED'}
 
         if not context.scene.overwrite_material or self._material_id == -1 or (context.scene.generation_method == 'local_edit' or (context.scene.model_architecture.startswith('qwen') and context.scene.qwen_generation_method == 'local_edit')):
@@ -834,6 +856,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                     self.report({'ERROR'}, f"Cannot use UV inpainting with the material of object '{obj.name}': incompatible material. The generated material has to be active.")
                     context.scene.generation_status = 'idle'
                     ComfyUIGenerate._is_running = False
+                    render.resolution_percentage = self._original_resolution_percentage
+                    render.resolution_x = self._original_resolution_x
+                    render.resolution_y = self._original_resolution_y
                     return {'CANCELLED'}
                     
                 # Export visibility masks for each object
@@ -923,6 +948,11 @@ class ComfyUIGenerate(bpy.types.Operator):
             if not self._thread.is_alive():
                 context.window_manager.event_timer_remove(self._timer)
                 ComfyUIGenerate._is_running = False
+                # Restore resolution_percentage that was forced to 100 in execute()
+                if hasattr(self, '_original_resolution_percentage'):
+                    bpy.context.scene.render.resolution_percentage = self._original_resolution_percentage
+                    bpy.context.scene.render.resolution_x = self._original_resolution_x
+                    bpy.context.scene.render.resolution_y = self._original_resolution_y
                 # Restore original visibility for non-selected objects
                 if context.scene.texture_objects == 'selected':
                     for obj in bpy.context.view_layer.objects:
@@ -1568,6 +1598,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                         existing = self._find_existing_pbr_maps(
                             context, cam_idx)
                         if existing:
+                            # Ensure raw copies exist for backward compat
+                            # (pre-feature files). Batch post-processing
+                            # runs after the loop collects all cameras.
+                            self._ensure_raw_copies(
+                                context, cam_idx, existing)
                             self._pbr_maps[cam_idx] = existing
                             print(f"[StableGen] Reusing existing PBR maps "
                                   f"for camera {cam_idx}")
@@ -1577,6 +1612,12 @@ class ComfyUIGenerate(bpy.types.Operator):
                     camera_images[cam_idx] = cam_image_path
             if camera_images:
                 self._run_pbr_decomposition_batched(context, camera_images)
+
+            # ── Batch post-processing (albedo sat/contrast, roughness scale) ──
+            # Runs after ALL cameras have raw maps saved, so auto-saturation
+            # can average across all cameras uniformly.
+            if self._pbr_maps:
+                self._apply_albedo_postprocessing_batch(context)
 
         def image_project_callback():
             if context.scene.generation_method == 'sequential':
@@ -2047,6 +2088,236 @@ class ComfyUIGenerate(bpy.types.Operator):
             print(f"  Warning: camera→world normal conversion failed: {err}")
             return None
 
+    # ── PBR post-processing helpers ───────────────────────────────────
+
+    @staticmethod
+    def _compute_image_mean_saturation(image_path_or_bytes, sample_limit=100_000):
+        """Compute the mean HSV saturation for a single image.
+
+        *image_path_or_bytes* can be a file path (str) or raw PNG bytes.
+        Skips very dark pixels whose saturation is unreliable.
+        Returns a float in [0, 1], or 0.0 on error.
+        """
+        import colorsys
+        from PIL import Image
+
+        try:
+            if isinstance(image_path_or_bytes, (str, bytes)) and isinstance(image_path_or_bytes, str):
+                img = Image.open(image_path_or_bytes).convert('RGB')
+            else:
+                img = Image.open(io.BytesIO(image_path_or_bytes)).convert('RGB')
+
+            pixels = list(img.getdata())
+            step = max(1, len(pixels) // sample_limit)
+            total_s, n = 0.0, 0
+            for i in range(0, len(pixels), step):
+                r, g, b = pixels[i]
+                _, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+                if v > 0.05:
+                    total_s += s
+                    n += 1
+            return total_s / n if n > 0 else 0.0
+        except Exception as err:
+            print(f"    Warning: saturation computation failed: {err}")
+            return 0.0
+
+    def _compute_avg_auto_saturation(self, context):
+        """Compute the average auto-saturation ratio across ALL cameras.
+
+        Compares each camera's original rendered image against its raw
+        PBR albedo, computes per-camera ratios, then averages them.
+        This ensures uniform albedo saturation regardless of per-camera
+        lighting differences.
+
+        Returns a float multiplier (1.0 = no correction needed).
+        """
+        ratios = []
+        num_cameras = len(self._cameras) if hasattr(self, '_cameras') else 0
+
+        for cam_idx in range(num_cameras):
+            original_path = get_file_path(
+                context, "generated", camera_id=cam_idx,
+                material_id=self._material_id)
+            raw_path = get_file_path(
+                context, "pbr", subtype="raw_albedo",
+                camera_id=cam_idx,
+                material_id=self._material_id)
+
+            if not os.path.exists(original_path) or not os.path.exists(raw_path):
+                continue
+
+            s_orig = self._compute_image_mean_saturation(original_path)
+            s_albedo = self._compute_image_mean_saturation(raw_path)
+
+            if s_albedo < 0.01:
+                continue  # skip grayscale albedos
+
+            ratio = s_orig / s_albedo
+            ratio = max(0.5, min(ratio, 3.0))
+            ratios.append(ratio)
+
+        if not ratios:
+            return 1.0
+
+        avg = sum(ratios) / len(ratios)
+        print(f"[StableGen] Auto saturation: per-camera ratios = "
+              f"{[f'{r:.2f}' for r in ratios]}, average = {avg:.2f}")
+        return avg
+
+    def _apply_albedo_postprocessing_batch(self, context):
+        """Apply auto-saturation correction to all camera albedos.
+
+        Must be called AFTER decomposition saves raw files for all cameras.
+        By default computes the averaged saturation ratio across all cameras
+        for uniform correction.  With per-camera mode, each camera gets its
+        own individual ratio.
+
+        When correction is disabled, restores raw (unprocessed) albedos
+        so that a previously corrected active file doesn't persist.
+        """
+        auto_on = getattr(context.scene, 'pbr_albedo_auto_saturation', True)
+
+        if not auto_on:
+            self._restore_raw_albedos(context)
+            return
+
+        per_camera = getattr(context.scene, 'pbr_albedo_per_camera_saturation', False)
+
+        if per_camera:
+            # Per-camera mode: individual ratio per camera
+            self._apply_per_camera_saturation(context)
+        else:
+            # Uniform mode: averaged ratio across all cameras
+            effective_sat = self._compute_avg_auto_saturation(context)
+
+            if effective_sat == 1.0:
+                print("[StableGen] Albedo saturation correction: no-op (ratio ≈ 1.0)")
+                self._restore_raw_albedos(context)
+                return
+
+            for cam_idx in sorted(self._pbr_maps.keys()):
+                cam_maps = self._pbr_maps[cam_idx]
+                if 'albedo' not in cam_maps:
+                    continue
+
+                raw_path = get_file_path(
+                    context, "pbr", subtype="raw_albedo",
+                    camera_id=cam_idx,
+                    material_id=self._material_id)
+                if not os.path.exists(raw_path):
+                    continue
+
+                with open(raw_path, 'rb') as f:
+                    raw_bytes = f.read()
+                processed = self._postprocess_albedo(raw_bytes, effective_sat)
+                with open(cam_maps['albedo'], 'wb') as f:
+                    f.write(processed)
+                print(f"    Corrected albedo saturation cam {cam_idx} "
+                      f"(uniform ×{effective_sat:.2f})")
+
+    def _apply_per_camera_saturation(self, context):
+        """Apply individual saturation correction for each camera."""
+        for cam_idx in sorted(self._pbr_maps.keys()):
+            cam_maps = self._pbr_maps[cam_idx]
+            if 'albedo' not in cam_maps:
+                continue
+
+            raw_path = get_file_path(
+                context, "pbr", subtype="raw_albedo",
+                camera_id=cam_idx,
+                material_id=self._material_id)
+            original_path = get_file_path(
+                context, "generated", camera_id=cam_idx,
+                material_id=self._material_id)
+
+            if not os.path.exists(raw_path) or not os.path.exists(original_path):
+                continue
+
+            s_orig = self._compute_image_mean_saturation(original_path)
+            s_albedo = self._compute_image_mean_saturation(raw_path)
+
+            if s_albedo < 0.01:
+                continue
+
+            ratio = max(0.5, min(s_orig / s_albedo, 3.0))
+
+            with open(raw_path, 'rb') as f:
+                raw_bytes = f.read()
+            processed = self._postprocess_albedo(raw_bytes, ratio)
+            with open(cam_maps['albedo'], 'wb') as f:
+                f.write(processed)
+            print(f"    Corrected albedo saturation cam {cam_idx} "
+                  f"(per-camera ×{ratio:.2f})")
+
+    def _restore_raw_albedos(self, context):
+        """Copy raw (unprocessed) albedos back to active paths.
+
+        Ensures that disabling saturation correction and reprojecting
+        uses the original decomposition output, not a previously corrected file.
+        """
+        import shutil
+        for cam_idx in sorted(self._pbr_maps.keys()):
+            cam_maps = self._pbr_maps[cam_idx]
+            if 'albedo' not in cam_maps:
+                continue
+            raw_path = get_file_path(
+                context, "pbr", subtype="raw_albedo",
+                camera_id=cam_idx,
+                material_id=self._material_id)
+            if os.path.exists(raw_path) and os.path.exists(cam_maps['albedo']):
+                shutil.copy2(raw_path, cam_maps['albedo'])
+                print(f"    Restored raw albedo for camera {cam_idx}")
+
+    @staticmethod
+    def _postprocess_albedo(image_bytes, saturation=1.0):
+        """Apply saturation adjustment to albedo PNG bytes.
+
+        Returns post-processed PNG bytes, or the original bytes unchanged
+        if saturation is 1.0 (no-op).
+        """
+        if saturation == 1.0:
+            return image_bytes
+        from PIL import Image, ImageEnhance
+        img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        img = ImageEnhance.Color(img).enhance(saturation)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
+    def _save_raw_copy(self, context, subtype, camera_id, data_bytes):
+        """Save an unprocessed (raw) copy of a PBR map for later re-processing."""
+        raw_path = get_file_path(
+            context, "pbr", subtype=f"raw_{subtype}",
+            camera_id=camera_id,
+            material_id=self._material_id)
+        try:
+            with open(raw_path, 'wb') as f:
+                f.write(data_bytes)
+        except Exception as err:
+            print(f"    Warning: failed to save raw {subtype}: {err}")
+
+    def _ensure_raw_copies(self, context, camera_id, existing_maps):
+        """Ensure a raw albedo copy exists for backward compatibility.
+
+        For files generated before the saturation correction feature, the
+        active albedo IS the unprocessed original.  Copy it to the raw slot
+        so that the batch saturation correction can read from it.
+        """
+        if 'albedo' not in existing_maps:
+            return
+        raw_path = get_file_path(
+            context, "pbr", subtype="raw_albedo",
+            camera_id=camera_id,
+            material_id=self._material_id)
+        if not os.path.exists(raw_path) and os.path.exists(existing_maps['albedo']):
+            try:
+                import shutil
+                shutil.copy2(existing_maps['albedo'], raw_path)
+                print(f"    Created missing raw albedo from active file "
+                      f"(camera {camera_id})")
+            except Exception as err:
+                print(f"    Warning: could not create raw albedo copy: {err}")
+
     def _run_pbr_decomposition_batched(self, context, camera_images):
         """Run PBR decomposition **model-first** across all cameras.
 
@@ -2126,9 +2397,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                 ['_lighting_albedo', '_lighting_shading', '_lighting_residual'],
             ))
 
-        # Count extra post-processing steps (HSV / VLM emission)
+        # Count extra post-processing steps (HSV emission)
         extra_emission_steps = 0
-        if want_emission and emission_method in ('hsv', 'vlm_seg'):
+        if want_emission and emission_method == 'hsv':
             extra_emission_steps = 1
 
         total_model_steps = (len(models_to_run)
@@ -2248,6 +2519,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                         camera_id=cam_idx,
                         material_id=self._material_id)
                     try:
+                        self._save_raw_copy(context, "albedo", cam_idx, result)
                         with open(pbr_path, 'wb') as f:
                             f.write(result)
                         self._pbr_maps[cam_idx]['albedo'] = pbr_path
@@ -2443,19 +2715,6 @@ class ComfyUIGenerate(bpy.types.Operator):
                     self._generate_emission_hsv(context, cam_idx, image_path)
                 self._progress = 100
 
-            elif emission_method == 'vlm_seg':
-                model_step += 1
-                self._pbr_step = model_step
-                self._progress = 0
-                print(f"[StableGen]   Emission via VLM segmentation "
-                      f"– step {model_step}/{total_model_steps}")
-                for ci, cam_idx in enumerate(cam_ids):
-                    self._pbr_cam = ci
-                    self._stage = (f"PBR: VLM emission "
-                                   f"(cam {ci+1}/{num_cams})")
-                    image_path = camera_images[cam_idx]
-                    self._generate_emission_vlm(context, cam_idx, image_path)
-
         # Deactivate PBR progress tracking
         self._pbr_active = False
         self._pbr_step = 0
@@ -2544,6 +2803,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                             context, "pbr", subtype="albedo",
                             camera_id=camera_id,
                             material_id=self._material_id)
+                        self._save_raw_copy(context, "albedo", camera_id, map_bytes)
                         with open(albedo_path, 'wb') as f:
                             f.write(map_bytes)
                         self._pbr_maps[camera_id]['albedo'] = albedo_path
@@ -2573,6 +2833,10 @@ class ComfyUIGenerate(bpy.types.Operator):
                         map_bytes, camera_id)
                     if converted is not None:
                         map_bytes = converted
+
+                # ── Raw save for albedo (post-processing applied in batch) ─
+                if map_name == 'albedo':
+                    self._save_raw_copy(context, "albedo", camera_id, map_bytes)
 
                 with open(pbr_path, 'wb') as f:
                     f.write(map_bytes)
@@ -2699,159 +2963,6 @@ class ComfyUIGenerate(bpy.types.Operator):
                   f"{os.path.basename(emission_path)}")
         except Exception as err:
             print(f"    Failed to generate emission (HSV): {err}")
-            import traceback; traceback.print_exc()
-
-    def _generate_emission_vlm(self, context, camera_id, image_path):
-        """Extract emission via Grounding DINO + SAM 2 segmentation.
-
-        Uses ComfyUI nodes to run Grounding DINO with emissive keywords,
-        then SAM 2 to get pixel-perfect masks, and multiplies with the
-        original image for a coloured emission map.
-        """
-        scene = context.scene
-        keywords = getattr(scene, 'pbr_emission_keywords',
-                           'neon sign, LED, fire, candle flame, '
-                           'screen display, laser, hologram, glowing crystal')
-        threshold = getattr(scene, 'pbr_emission_threshold', 0.3)
-
-        server_address = context.preferences.addons[
-            __package__].preferences.server_address
-
-        # Check that required nodes exist
-        required_nodes = [
-            'GroundingDinoModelLoader (segment anything)',
-            'GroundingDinoSAMSegment (segment anything)',
-            'SAMModelLoader (segment anything)',
-        ]
-        for node_class in required_nodes:
-            try:
-                resp = urllib.request.urlopen(
-                    f"http://{server_address}/object_info/{urllib.parse.quote(node_class)}",
-                    timeout=get_timeout('api')
-                )
-                data = json.loads(resp.read())
-            except Exception:
-                print(f"    VLM emission: ComfyUI node '{node_class}' not found. "
-                      f"Skipping VLM emission. Install comfyui_segment_anything.")
-                self._warning = (f"VLM Emission requires comfyui_segment_anything. "
-                                 f"Node '{node_class}' not found.")
-                return
-
-        # Upload image
-        from .generator import upload_image_to_comfyui
-        image_info = upload_image_to_comfyui(server_address, image_path)
-        if image_info is None:
-            print(f"    Failed to upload image for VLM emission")
-            return
-
-        uploaded_name = image_info.get("name", os.path.basename(image_path))
-
-        # Build the ComfyUI workflow:
-        # LoadImage → GroundingDINO detect → SAM segment → mask output
-        prompt = {
-            "1": {
-                "class_type": "LoadImage",
-                "inputs": {"image": uploaded_name}
-            },
-            "2": {
-                "class_type": "GroundingDinoModelLoader (segment anything)",
-                "inputs": {
-                    "model_name": "GroundingDINO_SwinB (938MB)"
-                }
-            },
-            "3": {
-                "class_type": "SAMModelLoader (segment anything)",
-                "inputs": {
-                    "model_name": "sam_vit_h (2.56GB)"
-                }
-            },
-            "4": {
-                "class_type": "GroundingDinoSAMSegment (segment anything)",
-                "inputs": {
-                    "grounding_dino_model": ["2", 0],
-                    "sam_model": ["3", 0],
-                    "image": ["1", 0],
-                    "prompt": keywords,
-                    "threshold": threshold,
-                }
-            },
-            # SAM output 1 is MASK; convert to IMAGE for SaveImageWebsocket
-            "4b": {
-                "class_type": "MaskToImage",
-                "inputs": {"mask": ["4", 1]}
-            },
-            "5": {
-                "class_type": "SaveImageWebsocket",
-                "inputs": {"images": ["4b", 0]}
-            }
-        }
-
-        NODES = {"save_image": "5"}
-
-        client_id = str(uuid.uuid4())
-        ws = self.workflow_manager._connect_to_websocket(
-            server_address, client_id)
-        if ws is None:
-            print(f"    VLM emission: WebSocket connection failed")
-            return
-
-        try:
-            images = self.workflow_manager._execute_prompt_and_get_images(
-                ws, prompt, client_id, server_address, NODES
-            )
-        finally:
-            try:
-                ws.close()
-            except Exception:
-                pass
-
-        if (images is None or not isinstance(images, dict)
-                or "5" not in images or not images["5"]):
-            print(f"    VLM emission: No mask output received. "
-                  f"The scene may not contain recognisable emissive objects.")
-            # Fall back to a black emission map
-            try:
-                orig = Image.open(image_path).convert('RGB')
-                black = Image.new('RGB', orig.size, (0, 0, 0))
-                emission_path = get_file_path(
-                    context, "pbr", subtype="emission",
-                    camera_id=camera_id,
-                    material_id=self._material_id)
-                black.save(emission_path)
-                self._pbr_maps[camera_id]['emission'] = emission_path
-                print(f"    Saved emission (VLM – no emissive objects) → "
-                      f"{os.path.basename(emission_path)}")
-            except Exception:
-                pass
-            return
-
-        mask_bytes = images["5"][0]
-        try:
-            mask = np.array(Image.open(io.BytesIO(mask_bytes)).convert('L')).astype(np.float32) / 255.0
-            original = np.array(Image.open(image_path).convert('RGB')).astype(np.float32) / 255.0
-
-            # Resize mask if dimensions differ
-            if mask.shape[:2] != original.shape[:2]:
-                mask_pil = Image.fromarray((mask * 255).astype(np.uint8), mode='L')
-                mask_pil = mask_pil.resize(
-                    (original.shape[1], original.shape[0]),
-                    Image.Resampling.BILINEAR)
-                mask = np.array(mask_pil).astype(np.float32) / 255.0
-
-            emission = original * mask[:, :, np.newaxis]
-
-            emission_img = Image.fromarray(
-                np.clip(emission * 255, 0, 255).astype(np.uint8), mode='RGB')
-            emission_path = get_file_path(
-                context, "pbr", subtype="emission",
-                camera_id=camera_id,
-                material_id=self._material_id)
-            emission_img.save(emission_path)
-            self._pbr_maps[camera_id]['emission'] = emission_path
-            print(f"    Saved emission (VLM segmentation) → "
-                  f"{os.path.basename(emission_path)}")
-        except Exception as err:
-            print(f"    Failed to generate emission (VLM): {err}")
             import traceback; traceback.print_exc()
 
     def _apply_qwen_context_cleanup(self, context, image_bytes):
