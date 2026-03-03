@@ -3,7 +3,6 @@ import os
 import json
 import uuid
 import random
-import struct
 import websocket
 import socket
 import urllib.request
@@ -409,17 +408,31 @@ class WorkflowManager:
         is_generating = hasattr(self.operator, '_current_image')
         is_subsequent_in_sequence = is_generating and self.operator._current_image > 0
 
+        # TRELLIS.2 style reference counts as a style image for prompt selection.
+        _t2_style = (
+            getattr(context.scene, 'architecture_mode', '') == 'trellis2'
+            and getattr(context.scene, 'qwen_use_trellis2_style', False)
+        )
+
         if is_initial_image:
-            # First frame only has a style reference when an explicit external image is supplied.
-            style_image_provided = context.scene.qwen_use_external_style_image
+            # First frame has a style reference from an external image or the TRELLIS.2 input.
+            style_image_provided = (
+                context.scene.qwen_use_external_style_image
+                or _t2_style
+            )
         else:
-            # Later frames can draw style from previous renders, external sources, or context renders.
+            # Later frames can draw style from previous renders, external sources,
+            # context renders, or the TRELLIS.2 input (when not initial-only).
             style_image_provided = (
                 context.scene.qwen_use_external_style_image or
                 context.scene.sequential_ipadapter or
-                context.scene.qwen_context_render_mode in {'REPLACE_STYLE', 'ADDITIONAL'}
+                context.scene.qwen_context_render_mode in {'REPLACE_STYLE', 'ADDITIONAL'} or
+                (_t2_style and not getattr(context.scene, 'qwen_trellis2_style_initial_only', False))
             )
         context_mode = context.scene.qwen_context_render_mode
+
+        # Optional sentence injected into context-render prompts.
+        gray_bg = " Replace the background with solid gray." if getattr(context.scene, 'qwen_prompt_gray_background', True) else ""
 
         if is_initial_image:
             if not style_image_provided:
@@ -428,9 +441,9 @@ class WorkflowManager:
                 return "Change and transfer the format of '{main_prompt}' in image 1 to the style from image 2"
         else: # Subsequent image
             if context_mode == 'ADDITIONAL':
-                return "Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object."
+                return f"Change and transfer the format of image 1 to '{{main_prompt}}'. Replace all solid magenta areas in image 2.{gray_bg} The style from image 2 should smoothly continue into the previously magenta areas. Image 3 represents the overall style of the object."
             elif context_mode == 'REPLACE_STYLE':
-                return "Change and transfer the format of image 1 to '{main_prompt}'. Replace all solid magenta areas in image 2. Replace the background with solid gray. The style from image 2 should smoothly continue into the previously magenta areas."
+                return f"Change and transfer the format of image 1 to '{{main_prompt}}'. Replace all solid magenta areas in image 2.{gray_bg} The style from image 2 should smoothly continue into the previously magenta areas."
             else: # NONE or other cases
                 if not style_image_provided:
                      return "Change the format of image 1 to '{main_prompt}'"
@@ -1493,12 +1506,20 @@ class WorkflowManager:
                                      f"or git clone https://github.com/kijai/ComfyUI-Marigold "
                                      f"into ComfyUI/custom_nodes/) and ensure 'diffusers>=0.28' "
                                      f"is installed in ComfyUI's Python, then restart ComfyUI."}
-            except Exception:
-                return {"error": f"ComfyUI-Marigold node '{node_class}' not found. "
-                                 f"Install ComfyUI-Marigold (run installer option 9 "
-                                 f"or git clone https://github.com/kijai/ComfyUI-Marigold "
-                                 f"into ComfyUI/custom_nodes/) and ensure 'diffusers>=0.28' "
-                                 f"is installed in ComfyUI's Python, then restart ComfyUI."}
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return {"error": f"ComfyUI-Marigold node '{node_class}' not found. "
+                                     f"Install ComfyUI-Marigold (run installer option 9 "
+                                     f"or git clone https://github.com/kijai/ComfyUI-Marigold "
+                                     f"into ComfyUI/custom_nodes/) and ensure 'diffusers>=0.28' "
+                                     f"is installed in ComfyUI's Python, then restart ComfyUI."}
+                return {"error": f"PBR model error: failed to query ComfyUI for node "
+                                 f"'{node_class}' (HTTP {e.code}). Is ComfyUI running?"}
+            except Exception as e:
+                return {"error": f"PBR model error: could not reach ComfyUI at "
+                                 f"'{server_address}' while checking for node '{node_class}' "
+                                 f"({type(e).__name__}: {e}). Verify ComfyUI is running and "
+                                 f"the server address is correct."}
 
         # Upload the source image to ComfyUI's input folder
         from .generator import upload_image_to_comfyui
@@ -1636,14 +1657,22 @@ class WorkflowManager:
                                      f"into ComfyUI/custom_nodes/) and download the model "
                                      f"'Stable-X/yoso-delight-v0-4-base' into "
                                      f"ComfyUI/models/diffusers/, then restart ComfyUI."}
-            except Exception:
-                return {"error": f"StableDelight node '{node_class}' not found. "
-                                 f"Install ComfyUI_StableDelight_ll (run installer "
-                                 f"option 10 or git clone "
-                                 f"https://github.com/lldacing/ComfyUI_StableDelight_ll "
-                                 f"into ComfyUI/custom_nodes/) and download the model "
-                                 f"'Stable-X/yoso-delight-v0-4-base' into "
-                                 f"ComfyUI/models/diffusers/, then restart ComfyUI."}
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return {"error": f"StableDelight node '{node_class}' not found. "
+                                     f"Install ComfyUI_StableDelight_ll (run installer "
+                                     f"option 10 or git clone "
+                                     f"https://github.com/lldacing/ComfyUI_StableDelight_ll "
+                                     f"into ComfyUI/custom_nodes/) and download the model "
+                                     f"'Stable-X/yoso-delight-v0-4-base' into "
+                                     f"ComfyUI/models/diffusers/, then restart ComfyUI."}
+                return {"error": f"Normal estimation error: failed to query ComfyUI for node "
+                                 f"'{node_class}' (HTTP {e.code}). Is ComfyUI running?"}
+            except Exception as e:
+                return {"error": f"Normal estimation error: could not reach ComfyUI at "
+                                 f"'{server_address}' while checking for node '{node_class}' "
+                                 f"({type(e).__name__}: {e}). Verify ComfyUI is running and "
+                                 f"the server address is correct."}
 
         # Resolve model path — the node expects a relative path under
         # ComfyUI/models/diffusers/ containing model_index.json.
@@ -2034,320 +2063,11 @@ class WorkflowManager:
 
         return prompt, "7"
 
-    # ── GLB mesh validation ───────────────────────────────────────────
-    _GLB_VERTEX_THRESHOLD = 10.0    # absolute coordinate cap
-    _GLB_OUTLIER_SIGMA   = 8.0     # for absolute-value outlier check
-    _GLB_LAPLACIAN_SIGMA = 8.0    # fallback — overridden by scene property
-    _GLB_SPIKE_FRACTION  = 0.002  # 0.02% — very tight because at 10σ virtually all
-                                    # flagged vertices are genuine artifacts
-    _GLB_SPIKE_ABS_MAX   = 25      # fallback — overridden by scene property
-
-    @staticmethod
-    def _validate_glb_mesh(glb_bytes, threshold=None, sigma=None):
-        """
-        GLB mesh integrity check that catches both extreme values and
-        subtle spiky artifacts (the cumesh/Dual Contouring Windows bug).
-
-        Three-layer validation:
-        1. **Hard limits** – NaN, Inf, absolute coordinate > *threshold*.
-        2. **Statistical outliers** – coords beyond *sigma* σ from mean.
-        3. **Laplacian smoothness** – for each vertex, measure displacement
-           from the average of its mesh neighbors.  Vertices displaced by
-           more than ``_GLB_LAPLACIAN_SIGMA`` σ of the mesh-wide Laplacian
-           distribution are flagged.  If more than ``_GLB_SPIKE_FRACTION``
-           of all vertices are flagged, the mesh is considered corrupt.
-
-        Returns ``(True, "")`` on success or ``(False, reason)`` on failure.
-        """
-        if threshold is None:
-            threshold = WorkflowManager._GLB_VERTEX_THRESHOLD
-        if sigma is None:
-            sigma = WorkflowManager._GLB_OUTLIER_SIGMA
-        # Read user-facing settings if available, else use class defaults
-        _scene = getattr(bpy.context, 'scene', None)
-        lap_sigma = getattr(_scene, 'trellis2_artifact_laplacian_sigma',
-                            WorkflowManager._GLB_LAPLACIAN_SIGMA)
-        spike_frac = WorkflowManager._GLB_SPIKE_FRACTION
-
-        if not glb_bytes or len(glb_bytes) < 20:
-            return False, "GLB data too small"
-
-        try:
-            # ── Parse GLB container ──────────────────────────────────
-            magic, version, total_len = struct.unpack_from('<III', glb_bytes, 0)
-            if magic != 0x46546C67:  # 'glTF'
-                return False, "Not a valid GLB (bad magic)"
-
-            json_len, json_type = struct.unpack_from('<II', glb_bytes, 12)
-            if json_type != 0x4E4F534A:  # 'JSON'
-                return False, "First GLB chunk is not JSON"
-            gltf = json.loads(glb_bytes[20:20 + json_len])
-
-            bin_offset = 20 + json_len
-            if bin_offset % 4:
-                bin_offset += 4 - (bin_offset % 4)
-            if bin_offset + 8 > len(glb_bytes):
-                return False, "No binary chunk found"
-            bin_len, bin_type = struct.unpack_from('<II', glb_bytes, bin_offset)
-            bin_data = glb_bytes[bin_offset + 8: bin_offset + 8 + bin_len]
-
-            accessors = gltf.get('accessors', [])
-            buffer_views = gltf.get('bufferViews', [])
-            meshes = gltf.get('meshes', [])
-
-            # ── Collect all primitives (position accessor + index accessor)
-            primitives_info = []
-            for mesh in meshes:
-                for prim in mesh.get('primitives', []):
-                    pos_idx = prim.get('attributes', {}).get('POSITION')
-                    idx_idx = prim.get('indices')
-                    if pos_idx is not None:
-                        primitives_info.append((pos_idx, idx_idx))
-
-            if not primitives_info:
-                return False, "No POSITION accessor found in GLB"
-
-            total_verts = 0
-            total_spikes = 0
-
-            for pos_acc_idx, idx_acc_idx in primitives_info:
-                # ── Read vertex positions ────────────────────────────
-                acc = accessors[pos_acc_idx]
-                bv = buffer_views[acc['bufferView']]
-                off = bv.get('byteOffset', 0) + acc.get('byteOffset', 0)
-                count = acc['count']
-                total_verts += count
-                num_floats = count * 3
-                end = off + num_floats * 4
-                if end > len(bin_data):
-                    return False, (f"POSITION data overflows binary chunk "
-                                   f"(need {end}, have {len(bin_data)})")
-
-                raw = struct.unpack_from(f'<{num_floats}f', bin_data, off)
-
-                # --- Layer 1: hard checks ---
-                for i, v in enumerate(raw):
-                    if v != v:
-                        return False, f"NaN vertex at float index {i}"
-                    if abs(v) == float('inf'):
-                        return False, f"Inf vertex at float index {i}"
-                    if abs(v) > threshold:
-                        return False, (f"Extreme vertex {v:.2e} at float "
-                                       f"index {i} (threshold {threshold})")
-
-                # --- Layer 2: absolute statistical outlier ---
-                if count >= 10:
-                    mean_v = sum(raw) / len(raw)
-                    var_v = sum((v - mean_v) ** 2 for v in raw) / len(raw)
-                    std_v = var_v ** 0.5
-                    if std_v > 1e-9:
-                        for i, v in enumerate(raw):
-                            dev = abs(v - mean_v) / std_v
-                            if dev > sigma:
-                                return False, (
-                                    f"Outlier vertex: {v:.4f} is {dev:.1f}σ "
-                                    f"from mean {mean_v:.4f} at float idx {i}")
-
-                # --- Layer 3: Laplacian smoothness (needs indices) ----
-                if idx_acc_idx is None or count < 10:
-                    continue  # can't do topology check without indices
-
-                # Build positions list as (x, y, z) tuples
-                positions = [(raw[i*3], raw[i*3+1], raw[i*3+2])
-                             for i in range(count)]
-
-                # Read triangle indices
-                idx_acc = accessors[idx_acc_idx]
-                idx_bv = buffer_views[idx_acc['bufferView']]
-                idx_off = idx_bv.get('byteOffset', 0) + idx_acc.get('byteOffset', 0)
-                idx_count = idx_acc['count']
-                comp_type = idx_acc.get('componentType', 5123)
-                # 5121=UNSIGNED_BYTE, 5123=UNSIGNED_SHORT, 5125=UNSIGNED_INT
-                if comp_type == 5121:
-                    fmt, sz = 'B', 1
-                elif comp_type == 5123:
-                    fmt, sz = 'H', 2
-                else:  # 5125
-                    fmt, sz = 'I', 4
-
-                idx_end = idx_off + idx_count * sz
-                if idx_end > len(bin_data):
-                    continue  # skip Laplacian if index data is bad
-                indices = struct.unpack_from(
-                    f'<{idx_count}{fmt}', bin_data, idx_off)
-
-                # Build neighbor sets from triangles
-                neighbors = [set() for _ in range(count)]
-                for t in range(0, idx_count, 3):
-                    if t + 2 >= idx_count:
-                        break
-                    a, b, c = indices[t], indices[t+1], indices[t+2]
-                    if a < count and b < count and c < count:
-                        neighbors[a].update((b, c))
-                        neighbors[b].update((a, c))
-                        neighbors[c].update((a, b))
-
-                # Compute Laplacian displacement magnitudes
-                laplacians = []
-                for vi in range(count):
-                    nbrs = neighbors[vi]
-                    if not nbrs:
-                        continue
-                    px, py, pz = positions[vi]
-                    ax = sum(positions[n][0] for n in nbrs) / len(nbrs)
-                    ay = sum(positions[n][1] for n in nbrs) / len(nbrs)
-                    az = sum(positions[n][2] for n in nbrs) / len(nbrs)
-                    dx, dy, dz = px - ax, py - ay, pz - az
-                    laplacians.append((dx*dx + dy*dy + dz*dz) ** 0.5)
-
-                if len(laplacians) < 10:
-                    continue
-
-                lap_mean = sum(laplacians) / len(laplacians)
-                lap_var = sum((v - lap_mean)**2 for v in laplacians) / len(laplacians)
-                lap_std = lap_var ** 0.5
-
-                if lap_std < 1e-12:
-                    continue  # perfectly smooth mesh, nothing to flag
-
-                spike_count = sum(
-                    1 for v in laplacians
-                    if (v - lap_mean) / lap_std > lap_sigma
-                )
-                total_spikes += spike_count
-
-            # Check overall spike count (absolute cap + fraction)
-            if total_verts > 0 and total_spikes > 0:
-                frac = total_spikes / total_verts
-                abs_max = getattr(_scene, 'trellis2_artifact_spike_abs_max',
-                                  WorkflowManager._GLB_SPIKE_ABS_MAX)
-                if total_spikes > abs_max:
-                    return False, (
-                        f"Mesh has {total_spikes} Laplacian-outlier vertices "
-                        f"(exceeds absolute cap of {abs_max}). "
-                        f"Likely cumesh corruption."
-                    )
-                if frac > spike_frac:
-                    return False, (
-                        f"Mesh has {total_spikes} Laplacian-outlier vertices "
-                        f"({frac*100:.2f}% of {total_verts} — threshold "
-                        f"{spike_frac*100:.2f}%). Likely cumesh corruption."
-                    )
-
-            print(f"[TRELLIS2] Mesh validation passed "
-                  f"({total_verts} verts, {total_spikes} minor spikes).")
-            return True, ""
-        except (struct.error, json.JSONDecodeError, KeyError, IndexError) as e:
-            return False, f"GLB parse error: {e}"
-
     @staticmethod
     def _is_local_server(server_address):
         """Return True if server_address points to localhost."""
         host = server_address.split(':')[0].strip()
         return host in ('127.0.0.1', 'localhost', '0.0.0.0', '::1', '')
-
-    @staticmethod
-    def _clear_triton_cache():
-        """
-        Delete the Triton JIT kernel cache.
-        On Windows this lives at ``%USERPROFILE%\\.triton\\cache``.
-        Returns True if anything was deleted.
-        """
-        import shutil
-        import pathlib
-
-        candidates = []
-        # Standard location
-        home = pathlib.Path.home()
-        candidates.append(home / '.triton' / 'cache')
-        # TRITON_CACHE_DIR env override
-        env_dir = os.environ.get('TRITON_CACHE_DIR')
-        if env_dir:
-            candidates.append(pathlib.Path(env_dir))
-
-        cleared = False
-        for cache_dir in candidates:
-            if cache_dir.is_dir():
-                try:
-                    count = sum(1 for _ in cache_dir.rglob('*') if _.is_file())
-                    shutil.rmtree(cache_dir, ignore_errors=True)
-                    print(f"[TRELLIS2] Cleared Triton cache: {cache_dir} "
-                          f"({count} files)")
-                    cleared = True
-                except Exception as e:
-                    print(f"[TRELLIS2] Failed to clear Triton cache {cache_dir}: {e}")
-        return cleared
-
-    def _reboot_comfyui(self, server_address, poll_timeout=None):
-        """
-        Attempt to reboot ComfyUI via the ComfyUI Manager ``/manager/reboot``
-        endpoint, then wait for the server to come back online.
-
-        Returns True if the server rebooted and is reachable again.
-        Returns False if ComfyUI Manager is not installed (404), the request
-        failed, or the server did not come back within *poll_timeout* seconds.
-        """
-        import time
-
-        if poll_timeout is None:
-            poll_timeout = get_timeout('reboot')
-
-        reboot_url = f"http://{server_address}/manager/reboot"
-        print(f"[TRELLIS2] Requesting ComfyUI reboot via {reboot_url} ...")
-
-        try:
-            req = urllib.request.Request(reboot_url, method='GET')
-            resp = urllib.request.urlopen(req, timeout=get_timeout('api'))
-            status = resp.getcode()
-            if status not in (200, 201, 204):
-                print(f"[TRELLIS2] Reboot endpoint returned unexpected status {status}")
-                return False
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                print(f"[TRELLIS2] Reboot endpoint not found (HTTP 404). "
-                      f"ComfyUI Manager may not be installed.")
-                return False
-            # Other HTTP errors (5xx etc.) might mean the server is already
-            # shutting down — treat as potentially successful.
-            print(f"[TRELLIS2] Reboot endpoint returned HTTP {e.code}, "
-                  f"proceeding to poll (server may be restarting)...")
-        except Exception as e:
-            # Connection reset / broken pipe / timeout are EXPECTED when the
-            # server process dies mid-response.  Treat as likely success.
-            print(f"[TRELLIS2] Connection dropped after reboot request "
-                  f"({type(e).__name__}: {e}) — server is likely restarting.")
-
-        print("[TRELLIS2] Reboot request sent. Waiting for server to go down...")
-
-        # Phase 1: Wait for the server to actually go down (up to 15s).
-        # If it never goes down, the reboot may not have taken effect.
-        down_deadline = time.time() + 15
-        went_down = False
-        time.sleep(2)  # give the process a moment to start shutting down
-        while time.time() < down_deadline:
-            if not self._check_server_alive(server_address, timeout=2):
-                went_down = True
-                break
-            time.sleep(1)
-
-        if not went_down:
-            # Server never went down — maybe the reboot was a no-op
-            print("[TRELLIS2] Server did not appear to go down. "
-                  "Continuing anyway (it may have rebooted very quickly).")
-
-        # Phase 2: Poll until the server is back up.
-        print("[TRELLIS2] Waiting for server to come back up...")
-        up_deadline = time.time() + poll_timeout
-        while time.time() < up_deadline:
-            if self._check_server_alive(server_address, timeout=3):
-                print("[TRELLIS2] Server is back online!")
-                # Give it a few extra seconds to finish loading custom nodes
-                time.sleep(5)
-                return True
-            time.sleep(3)
-
-        print(f"[TRELLIS2] Server did not come back within {poll_timeout}s.")
-        return False
 
     def generate_trellis2(self, context, input_image_path):
         """
@@ -2358,15 +2078,6 @@ class WorkflowManager:
         and downloads the resulting GLB file from the ComfyUI server.
         VRAM is always flushed before AND after generation.
 
-        If the resulting mesh contains degenerate vertices (a known cumesh /
-        Dual Contouring issue on Windows, caused by corrupted Triton JIT
-        cache), the addon will:
-
-        1. Clear the Triton cache (if the server is local).
-        2. Reboot ComfyUI via the ComfyUI Manager ``/manager/reboot``
-           endpoint (works for both local and remote servers).
-        3. Run one final generation attempt with a fresh process.
-
         Args:
             context: Blender context.
             input_image_path: Local path to the input image file.
@@ -2375,7 +2086,6 @@ class WorkflowManager:
             bytes: GLB file binary data on success.
             dict: {"error": "message"} on failure.
         """
-        import urllib.parse
         import time
 
         server_address = context.preferences.addons[__package__].preferences.server_address
@@ -2391,90 +2101,12 @@ class WorkflowManager:
         if not self._check_server_alive(server_address):
             return {"error": "ComfyUI server is not responding. Please restart it and try again."}
 
-        is_local = self._is_local_server(server_address)
-        original_seed = context.scene.trellis2_seed
-        max_retries = getattr(context.scene, 'trellis2_artifact_max_retries', 1)
-
         try:
-            # ── First attempt ──────────────────────────────────────────
             client_id = str(uuid.uuid4())
             result = self._generate_trellis2_inner(
                 context, input_image_path, server_address, client_id)
-
-            if isinstance(result, dict) and "error" in result:
-                return result
-
-            ok, reason = self._validate_glb_mesh(result)
-            if ok:
-                return result
-
-            # Mesh is corrupt — Triton JIT cache is the most common cause.
-            print(f"[TRELLIS2] Mesh validation FAILED: {reason}")
-
-            if max_retries <= 0:
-                print("[TRELLIS2] Artifact retries disabled (max_retries=0).")
-            else:
-                print(f"[TRELLIS2] Attempting automatic recovery "
-                      f"(up to {max_retries} retries, Triton cache clear + ComfyUI reboot)...")
-
-            rebooted = False
-            for retry_i in range(max_retries):
-                # ── Recovery: clear cache + reboot ─────────────────────
-                if is_local:
-                    self._clear_triton_cache()
-
-                rebooted = self._reboot_comfyui(server_address)
-
-                if not rebooted:
-                    print(f"[TRELLIS2] Could not reboot ComfyUI — aborting retries.")
-                    break
-
-                print(f"[TRELLIS2] Retry {retry_i + 1}/{max_retries} after reboot...")
-                new_seed = random.randint(0, 2**31 - 1)
-                context.scene.trellis2_seed = new_seed
-                client_id = str(uuid.uuid4())
-                result = self._generate_trellis2_inner(
-                    context, input_image_path, server_address, client_id)
-
-                if isinstance(result, dict) and "error" in result:
-                    return result
-
-                ok, reason = self._validate_glb_mesh(result)
-                if ok:
-                    return result
-
-                print(f"[TRELLIS2] Retry {retry_i + 1}/{max_retries} also failed: {reason}")
-
-            # ── Truly exhausted ────────────────────────────────────────
-            if is_local:
-                warning_msg = (
-                    "Mesh has artifacts (corrupt Triton JIT cache). "
-                    f"Cache was cleared and ComfyUI was "
-                    f"{'rebooted' if rebooted else 'NOT rebooted (install ComfyUI Manager for auto-reboot)'}. "
-                    "Try manually restarting ComfyUI."
-                )
-            else:
-                warning_msg = (
-                    "Mesh has artifacts (corrupt Triton JIT cache). "
-                    f"{'ComfyUI was rebooted but issue persists.' if rebooted else 'Could not auto-reboot (ComfyUI Manager not installed?).'} "
-                    "On the ComfyUI host, delete C:\\Users\\<USERNAME>\\.triton\\cache "
-                    "and restart ComfyUI."
-                )
-            fail_on_exhausted = getattr(context.scene, 'trellis2_artifact_fail_on_exhausted', False)
-            if fail_on_exhausted:
-                error_msg = (
-                    "Mesh artifact check failed after all retries. "
-                    "Generation aborted (Fail if Unresolved is enabled)."
-                )
-                print(f"[TRELLIS2] ERROR: {error_msg}")
-                self.operator._error = error_msg
-                return {"error": error_msg}
-            print(f"[TRELLIS2] WARNING: {warning_msg}")
-            self.operator._warning = warning_msg
             return result
         finally:
-            # Restore the original seed so the UI isn't silently changed
-            context.scene.trellis2_seed = original_seed
             self._flush_comfyui_vram(server_address, label="Post-generation")
             self._cleanup_trellis2_temp_files()
 
@@ -2571,7 +2203,7 @@ class WorkflowManager:
                 # Raw mesh — max faces, no remesh
                 prompt[NODES['simplify']]["inputs"]["target_face_count"] = 5000000
                 prompt[NODES['simplify']]["inputs"]["remesh"] = False
-            prompt[NODES['simplify']]["inputs"]["fill_holes"] = scene.trellis2_fill_holes
+            prompt[NODES['simplify']]["inputs"]["fill_holes"] = False
             prompt[NODES['export_trimesh']]["inputs"]["filename_prefix"] = unique_prefix
         else:
             # Configure texture generation

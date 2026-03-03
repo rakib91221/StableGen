@@ -1,7 +1,7 @@
 """ This script registers the addon. """
 import bpy # pylint: disable=import-error
-from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters, ResetQwenPrompt
-from .stablegen import SG_UL_SceneQueueList, SceneQueueAdd, SceneQueueRemove, SceneQueueClear, SceneQueueMoveUp, SceneQueueMoveDown, SceneQueueOpenResult, SceneQueueProcess
+from .stablegen import StableGenPanel, ApplyPreset, SavePreset, DeletePreset, get_preset_items, update_parameters, ResetQwenPrompt, SwitchToMeshGeneration
+from .stablegen import SG_UL_SceneQueueList, SceneQueueAdd, SceneQueueRemove, SceneQueueClear, SceneQueueMoveUp, SceneQueueMoveDown, SceneQueueOpenResult, SceneQueueInvalidate, SceneQueueProcess
 from .render_tools import BakeTextures, AddCameras, CloneCamera, MirrorCamera, ToggleCameraLabels, SwitchMaterial, ExportOrbitGIF, ExportForGameEngine, CollectCameraPrompts, CameraPromptItem, CameraOrderItem, SG_UL_CameraOrderList, SyncCameraOrder, MoveCameraOrder, ApplyCameraOrderPreset
 from .debug_tools import debug_classes as _debug_classes
 from .utils import AddHDRI, ApplyModifiers, CurvesToMesh, sg_modal_active
@@ -23,6 +23,7 @@ bl_info = {
 classes = [
     StableGenPanel,
     ApplyPreset,
+    SwitchToMeshGeneration,
     SavePreset,
     DeletePreset,
     ResetQwenPrompt,
@@ -56,6 +57,7 @@ classes = [
     SceneQueueMoveUp,
     SceneQueueMoveDown,
     SceneQueueOpenResult,
+    SceneQueueInvalidate,
     SceneQueueProcess,
 ]
 
@@ -68,6 +70,24 @@ _pending_checkpoint_refresh_architecture = None
 # Counter for in-flight async refresh operations (checkpoint, LoRA, controlnet).
 # The UI checks this to display a "Refreshing…" indicator.
 _pending_refreshes = 0
+_refresh_started_at = 0.0  # monotonic timestamp of first in-flight refresh
+_REFRESH_TIMEOUT = 30.0    # seconds before we force-clear a stuck indicator
+
+import time as _time_mod
+
+def _inc_pending_refreshes():
+    """Increment the in-flight refresh counter (call from main thread)."""
+    global _pending_refreshes, _refresh_started_at
+    if _pending_refreshes <= 0:
+        _refresh_started_at = _time_mod.monotonic()
+    _pending_refreshes += 1
+
+def _dec_pending_refreshes():
+    """Decrement the in-flight refresh counter (call from main thread)."""
+    global _pending_refreshes, _refresh_started_at
+    _pending_refreshes = max(0, _pending_refreshes - 1)
+    if _pending_refreshes <= 0:
+        _refresh_started_at = 0.0
 
 # ---------------------------------------------------------------------------
 #  Async network helper — run blocking I/O off the main thread
@@ -272,8 +292,10 @@ def update_combined(self, context):
         result['online'] = check_server_availability(server_address, timeout=get_timeout('ping'))
         if result['online']:
             result['trellis2'] = check_trellis2_available(server_address, timeout=get_timeout('api'))
+            result['pbr'] = check_pbr_available(server_address, timeout=get_timeout('api'))
         else:
             result['trellis2'] = False
+            result['pbr'] = False
         return result
 
     def _on_done(result):
@@ -285,6 +307,7 @@ def update_combined(self, context):
 
         if hasattr(bpy.context, 'scene') and bpy.context.scene:
             bpy.context.scene.trellis2_available = result.get('trellis2', False)
+            bpy.context.scene.pbr_nodes_available = result.get('pbr', False)
 
         if not result.get('online', False):
             print("ComfyUI server is not reachable.")
@@ -519,12 +542,14 @@ class CheckServerStatus(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Can run if server address is set
         prefs = context.preferences.addons.get(__package__)
-        # Also check that another check isn't running if using threading later
-        # global _is_refreshing
-        # return prefs and prefs.preferences.server_address and not _is_refreshing
-        return prefs and prefs.preferences.server_address and not sg_modal_active(context) # Simplified for sync check
+        if not prefs or not prefs.preferences.server_address:
+            cls.poll_message_set("Server address not configured (check addon preferences)")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
@@ -537,8 +562,10 @@ class CheckServerStatus(bpy.types.Operator):
             result['online'] = check_server_availability(server_addr, timeout=get_timeout('ping'))
             if result['online']:
                 result['trellis2'] = check_trellis2_available(server_addr, timeout=get_timeout('api'))
+                result['pbr'] = check_pbr_available(server_addr, timeout=get_timeout('api'))
             else:
                 result['trellis2'] = False
+                result['pbr'] = False
             return result
 
         def _on_done(result):
@@ -549,6 +576,7 @@ class CheckServerStatus(bpy.types.Operator):
 
             if hasattr(bpy.context, 'scene') and bpy.context.scene:
                 bpy.context.scene.trellis2_available = result.get('trellis2', False)
+                bpy.context.scene.pbr_nodes_available = result.get('pbr', False)
 
             if result.get('online', False):
                 print(f"ComfyUI server is online at {server_addr}.")
@@ -604,9 +632,14 @@ class RefreshControlNetMappings(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Can run if server address is set
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
+        if not prefs or not prefs.preferences.server_address:
+            cls.poll_message_set("Server address not configured (check addon preferences)")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -628,8 +661,7 @@ class RefreshControlNetMappings(bpy.types.Operator):
                     'existing_names': existing_model_names}
 
         def _on_done(result):
-            global _pending_refreshes
-            _pending_refreshes = max(0, _pending_refreshes - 1)
+            _dec_pending_refreshes()
             if result is None:
                 return
             server_models = result.get('server_models')
@@ -695,8 +727,7 @@ class RefreshControlNetMappings(bpy.types.Operator):
                     area.tag_redraw()
 
         _run_async(_bg_work, _on_done)
-        global _pending_refreshes
-        _pending_refreshes += 1
+        _inc_pending_refreshes()
         self.report({'INFO'}, "Fetching ControlNet models...")
         return {'FINISHED'}
     
@@ -771,6 +802,36 @@ def check_trellis2_available(server_address, timeout=1.0):
         return False
     except Exception as e:
         print(f"  Initial server check failed: Unexpected Error ({e}).")
+        return False
+
+def check_pbr_available(server_address, timeout=1.0):
+    """
+    Checks if PBR decomposition custom nodes are installed in ComfyUI.
+
+    Looks for MarigoldModelLoader (ComfyUI-Marigold) and
+    LoadStableDelightModel (ComfyUI_StableDelight_ll).
+
+    Args:
+        server_address (str): The address:port of the ComfyUI server.
+        timeout (float): Timeout in seconds.
+
+    Returns:
+        bool: True if both node packages are detected, False otherwise.
+    """
+    if not server_address:
+        return False
+    required = ['MarigoldModelLoader', 'LoadStableDelightModel']
+    try:
+        for node_class in required:
+            url = f"http://{server_address}/object_info/{node_class}"
+            response = requests.get(url, timeout=timeout)
+            if response.status_code != 200 or node_class not in response.json():
+                print(f"[PBR] Auto-detect: node '{node_class}' NOT found in ComfyUI.")
+                return False
+        print("[PBR] Auto-detect: PBR decomposition nodes found in ComfyUI.")
+        return True
+    except Exception as e:
+        print(f"[PBR] Auto-detect failed: {e}")
         return False
 
 def fetch_from_comfyui_api(context, endpoint):
@@ -1103,7 +1164,13 @@ class RefreshCheckpointList(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
+        if not prefs or not prefs.preferences.server_address:
+            cls.poll_message_set("Server address not configured (check addon preferences)")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -1137,8 +1204,8 @@ class RefreshCheckpointList(bpy.types.Operator):
 
         def _on_done(result):
             """Main-thread callback — update caches and UI."""
-            global _cached_checkpoint_list, _cached_checkpoint_architecture, _pending_refreshes
-            _pending_refreshes = max(0, _pending_refreshes - 1)
+            global _cached_checkpoint_list, _cached_checkpoint_architecture
+            _dec_pending_refreshes()
             if result is None:
                 return
 
@@ -1188,8 +1255,7 @@ class RefreshCheckpointList(bpy.types.Operator):
                     area.tag_redraw()
 
         _run_async(_bg_work, _on_done)
-        global _pending_refreshes
-        _pending_refreshes += 1
+        _inc_pending_refreshes()
         self.report({'INFO'}, "Fetching checkpoint list...")
         return {'FINISHED'}
     
@@ -1202,7 +1268,13 @@ class RefreshLoRAList(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         prefs = context.preferences.addons.get(__package__)
-        return prefs and prefs.preferences.server_address and not sg_modal_active(context)
+        if not prefs or not prefs.preferences.server_address:
+            cls.poll_message_set("Server address not configured (check addon preferences)")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def execute(self, context):
         prefs = context.preferences.addons.get(__package__)
@@ -1216,8 +1288,8 @@ class RefreshLoRAList(bpy.types.Operator):
             return {'lora_list': _fetch_api_list(server_address, "/models/loras")}
 
         def _on_done(result):
-            global _cached_lora_list, _pending_refreshes
-            _pending_refreshes = max(0, _pending_refreshes - 1)
+            global _cached_lora_list
+            _dec_pending_refreshes()
             if result is None:
                 return
 
@@ -1261,8 +1333,7 @@ class RefreshLoRAList(bpy.types.Operator):
                     area.tag_redraw()
 
         _run_async(_bg_work, _on_done)
-        global _pending_refreshes
-        _pending_refreshes += 1
+        _inc_pending_refreshes()
         self.report({'INFO'}, "Fetching LoRA list...")
         return {'FINISHED'}
 
@@ -1506,7 +1577,8 @@ def _sg_queue_save(processing=False, current_idx=0, phase='idle'):
               "prompt": it.prompt,
               "negative_prompt": it.negative_prompt,
               "status": it.status,
-              "retries": it.retries}
+              "retries": it.retries,
+              "error_reason": it.error_reason}
              for it in wm.sg_scene_queue]
     # GIF export settings (persist across .blend switches)
     gif_settings = {}
@@ -1572,6 +1644,7 @@ def _sg_queue_load():
             new_item.negative_prompt = entry.get("negative_prompt", "")
             new_item.status = entry.get("status", "pending")
             new_item.retries = entry.get("retries", 0)
+            new_item.error_reason = entry.get("error_reason", "")
         wm.sg_scene_queue_index = min(0, len(wm.sg_scene_queue) - 1)
 
         # Restore GIF export settings
@@ -1701,6 +1774,7 @@ class SceneQueueItem(bpy.types.PropertyGroup):
     negative_prompt: bpy.props.StringProperty(name="Negative Prompt", default="")  # type: ignore
     status: bpy.props.StringProperty(name="Status", default="pending")  # type: ignore
     retries: bpy.props.IntProperty(name="Retries", default=0)  # type: ignore  # how many times this item has been retried
+    error_reason: bpy.props.StringProperty(name="Error Reason", default="")  # type: ignore  # last failure reason
 
 classes_to_append = [CheckServerStatus, RefreshCheckpointList, RefreshLoRAList, STABLEGEN_UL_ControlNetMappingList, ControlNetModelMappingItem, RefreshControlNetMappings, StableGenAddonPreferences, ControlNetUnit, LoRAUnit, AddControlNetUnit, RemoveControlNetUnit, AddLoRAUnit, RemoveLoRAUnit, SceneQueueItem]
 for cls in classes_to_append:
@@ -1752,17 +1826,17 @@ def register():
     bpy.types.WindowManager.sg_queue_gif_engine = bpy.props.EnumProperty(
         name="Engine",
         items=[
-            ('BLENDER_WORKBENCH', "Workbench", ""),
-            ('EEVEE', "Eevee", ""),
-            ('CYCLES', "Cycles", ""),
+            ('BLENDER_WORKBENCH', "Workbench", "Fast preview renderer — no lighting, flat shading"),
+            ('EEVEE', "Eevee", "Real-time renderer — good quality with fast render times"),
+            ('CYCLES', "Cycles", "Path-traced renderer — highest quality but slowest"),
         ],
         default='CYCLES'
     )
     bpy.types.WindowManager.sg_queue_gif_interpolation = bpy.props.EnumProperty(
         name="Rotation Curve",
         items=[
-            ('LINEAR', "Linear", "Constant speed"),
-            ('BEZIER', "Ease In/Out", "Smooth acceleration"),
+            ('LINEAR', "Linear", "Constant rotation speed throughout the orbit"),
+            ('BEZIER', "Ease In/Out", "Smooth acceleration and deceleration for a polished look"),
         ],
         default='LINEAR'
     )
@@ -1787,10 +1861,10 @@ def register():
     bpy.types.WindowManager.sg_queue_gif_env_mode = bpy.props.EnumProperty(
         name="Environment Mode",
         items=[
-            ('FIXED', "Fixed", ""),
-            ('LOCKED', "Locked", ""),
-            ('COUNTER', "Counter-Rotate", ""),
-            ('ENV_ONLY', "Environment Only", ""),
+            ('FIXED', "Fixed", "HDRI stays in place while the camera orbits"),
+            ('LOCKED', "Locked", "HDRI rotates with the camera to keep lighting consistent"),
+            ('COUNTER', "Counter-Rotate", "HDRI rotates opposite to the camera for dynamic lighting"),
+            ('ENV_ONLY', "Environment Only", "Render only the HDRI environment without the object"),
         ],
         default='FIXED'
     )
@@ -1887,17 +1961,17 @@ def register():
         name="Control After Generate",
         description="Control behavior after generation",
         items=[
-            ('fixed', 'Fixed', ''),
-            ('increment', 'Increment', ''),
-            ('decrement', 'Decrement', ''),
-            ('randomize', 'Randomize', '')
+            ('fixed', 'Fixed', 'Keep the same seed every generation'),
+            ('increment', 'Increment', 'Add 1 to the seed after each generation'),
+            ('decrement', 'Decrement', 'Subtract 1 from the seed after each generation'),
+            ('randomize', 'Randomize', 'Pick a random seed for every generation')
         ],
         default='fixed',
         update=update_parameters
     )
     bpy.types.Scene.steps = bpy.props.IntProperty(
         name="Steps",
-        description="Number of steps for generation",
+        description="Number of denoising steps. Higher values improve detail and coherence but take longer",
         default=8,
         min=0,
         max=200,
@@ -1905,7 +1979,7 @@ def register():
     )
     bpy.types.Scene.cfg = bpy.props.FloatProperty(
         name="CFG",
-        description="Classifier-Free Guidance scale",
+        description="Classifier-Free Guidance scale. Higher values follow the prompt more strictly but may reduce quality; lower values give more creative freedom",
         default=1.5,
         min=0.0,
         max=100.0,
@@ -1945,7 +2019,7 @@ def register():
     )
     bpy.types.Scene.show_generation_params = bpy.props.BoolProperty(
         name="Show Generation Parameters",
-        description="Most important parameters",
+        description="Toggle visibility of core generation settings (steps, CFG, sampler, scheduler, seed)",
         default=True,
         update=update_parameters
     )
@@ -2309,7 +2383,7 @@ def register():
             ("hm-mvgd-hm", "HM–MVGD–HM",    ""),
             ("hm-mkl-hm",  "HM–MKL–HM",     ""),
         ],
-        default="reinhard",
+        default="hm-mvgd-hm",
         update=update_parameters,
     )
     bpy.types.Scene.view_blend_color_match_strength = bpy.props.FloatProperty(
@@ -2623,7 +2697,7 @@ def register():
         description="Select the model architecture to use for generation",
         items=[
             ('sdxl', 'SDXL', ''),
-            ('flux1', 'Flux 1', ''),
+            ('flux1', 'FLUX.1', ''),
             ('qwen_image_edit', 'Qwen Image Edit', ''),
             ('flux2_klein', 'FLUX.2 Klein', '')
         ],
@@ -2636,7 +2710,7 @@ def register():
         description="Select the overall generation architecture",
         items=[
             ('sdxl', 'SDXL', 'Stable Diffusion XL'),
-            ('flux1', 'Flux 1', 'Flux 1 architecture'),
+            ('flux1', 'FLUX.1', 'FLUX.1 architecture'),
             ('qwen_image_edit', 'Qwen Image Edit', 'Qwen Image Edit architecture'),
             ('flux2_klein', 'FLUX.2 Klein', 'FLUX.2 Klein multi-reference edit model (Apache 2.0)'),
             ('trellis2', 'TRELLIS.2', 'Image to 3D mesh generation with TRELLIS.2'),
@@ -2663,7 +2737,7 @@ def register():
             ('none', 'None', 'Shape only, no texture generation'),
             ('native', 'Native (TRELLIS.2)', 'Use TRELLIS.2 built-in texture generation'),
             ('sdxl', 'SDXL', 'Use SDXL for camera-based texture projection'),
-            ('flux1', 'Flux 1', 'Use Flux 1 for camera-based texture projection'),
+            ('flux1', 'FLUX.1', 'Use FLUX.1 for camera-based texture projection'),
             ('qwen_image_edit', 'Qwen Image Edit', 'Use Qwen for camera-based texture projection'),
             ('flux2_klein', 'FLUX.2 Klein', 'Use FLUX.2 Klein for camera-based texture projection'),
         ],
@@ -2676,7 +2750,7 @@ def register():
         description="Diffusion architecture used to generate the initial image when Generate From is set to Prompt and Texture Mode is Native or None",
         items=[
             ('sdxl', 'SDXL', 'Stable Diffusion XL'),
-            ('flux1', 'Flux 1', 'Flux 1 architecture'),
+            ('flux1', 'FLUX.1', 'FLUX.1 architecture'),
             ('qwen_image_edit', 'Qwen Image Edit', 'Qwen Image Edit architecture'),
             ('flux2_klein', 'FLUX.2 Klein', 'FLUX.2 Klein multi-reference edit'),
         ],
@@ -2808,6 +2882,18 @@ def register():
         max=100.0,
         soft_min=0.0,
         soft_max=10.0,
+        update=update_parameters
+    )
+
+    bpy.types.Scene.trellis2_shade_mode = bpy.props.EnumProperty(
+        name="Shading",
+        description="Shading mode applied to imported TRELLIS.2 meshes",
+        items=[
+            ('flat', "Flat", "Keep flat shading (default)"),
+            ('smooth', "Smooth", "Apply smooth shading to the entire mesh"),
+            ('auto_smooth', "Auto Smooth", "Apply auto smooth shading by angle"),
+        ],
+        default='flat',
         update=update_parameters
     )
 
@@ -3007,6 +3093,13 @@ def register():
         update=update_parameters
     )
 
+    bpy.types.Scene.qwen_prompt_gray_background = bpy.props.BoolProperty(
+        name="Gray Background Prompt",
+        description="Include 'Replace the background with solid gray' in the default context-render prompt. Disable to let the model choose the background freely",
+        default=True,
+        update=update_parameters
+    )
+
     bpy.types.Scene.output_timestamp = bpy.props.StringProperty(
         name="Output Timestamp",
         description="Timestamp for generation output directory",
@@ -3163,6 +3256,11 @@ def register():
         description="Whether TRELLIS.2 nodes are available on the ComfyUI server (auto-detected)",
         default=False
     )
+    bpy.types.Scene.pbr_nodes_available = bpy.props.BoolProperty(
+        name="PBR Nodes Available",
+        description="Whether PBR decomposition nodes (Marigold IID + StableDelight) are available on the ComfyUI server (auto-detected)",
+        default=False
+    )
     bpy.types.Scene.show_trellis2_params = bpy.props.BoolProperty(
         name="Show TRELLIS.2 Section",
         description="Toggle TRELLIS.2 Image-to-3D section",
@@ -3186,11 +3284,6 @@ def register():
     bpy.types.Scene.show_trellis2_camera_settings = bpy.props.BoolProperty(
         name="Show Camera Placement Settings",
         description="Toggle TRELLIS.2 camera placement settings",
-        default=False
-    )
-    bpy.types.Scene.show_trellis2_artifact_filter = bpy.props.BoolProperty(
-        name="Show Artifact Filtering",
-        description="Toggle TRELLIS.2 artifact filtering settings",
         default=False
     )
     bpy.types.Scene.trellis2_last_input_image = bpy.props.StringProperty(
@@ -3403,12 +3496,6 @@ def register():
         default='black',
         update=update_parameters
     )
-    bpy.types.Scene.trellis2_fill_holes = bpy.props.BoolProperty(
-        name="Fill Holes",
-        description="Fill holes in the mesh during simplification (shape-only mode)",
-        default=True,
-        update=update_parameters
-    )
 
     # ── PBR Decomposition (Marigold IID) ──────────────────────────────
     bpy.types.Scene.pbr_decomposition = bpy.props.BoolProperty(
@@ -3552,7 +3639,9 @@ def register():
     )
     bpy.types.Scene.pbr_emission_threshold = bpy.props.FloatProperty(
         name="Emission Threshold",
-        description="Minimum brightness/residual value to consider as emission. "
+        description="Minimum value to consider as emission. "
+                    "In Residual mode, fades out low-luminance residuals. "
+                    "In HSV mode, zeroes the blurred mask below this cutoff. "
                     "Higher = fewer false positives, lower = catches subtle glow",
         default=0.2,
         min=0.0,
@@ -3723,12 +3812,18 @@ def register():
         default=True,
         update=update_parameters
     )
-    bpy.types.Scene.pbr_albedo_per_camera_saturation = bpy.props.BoolProperty(
-        name="Per Camera",
-        description="Compute saturation correction individually for each camera instead of "
-                    "averaging across all cameras. May produce slightly different albedo "
-                    "colours per view if the cameras have different lighting conditions",
-        default=False,
+    bpy.types.Scene.pbr_albedo_saturation_mode = bpy.props.EnumProperty(
+        name="Saturation Mode",
+        description="How to compute the albedo saturation correction ratio. "
+                    "Mean averages all camera ratios (sensitive to outliers). "
+                    "Median takes the middle value (robust to outliers). "
+                    "Per Camera applies an individual ratio to each camera",
+        items=[
+            ('MEDIAN', "Median", "Use the median ratio across cameras (recommended, outlier-resistant)"),
+            ('MEAN', "Mean", "Use the arithmetic mean of all camera ratios"),
+            ('PER_CAMERA', "Per Camera", "Compute and apply an individual ratio for each camera"),
+        ],
+        default='MEDIAN',
         update=update_parameters
     )
     bpy.types.Scene.pbr_replace_color_with_albedo = bpy.props.BoolProperty(
@@ -3742,46 +3837,6 @@ def register():
         name="Studio Lighting",
         description="Create a three-point studio lighting rig (key, fill, rim) "
                     "after PBR projection to showcase PBR materials",
-        default=False,
-        update=update_parameters
-    )
-
-    # Artifact Filtering
-    bpy.types.Scene.trellis2_artifact_laplacian_sigma = bpy.props.FloatProperty(
-        name="Laplacian Sigma",
-        description="Laplacian displacement outlier threshold in standard deviations. "
-                    "Vertices displaced more than this many σ from the mesh-wide mean "
-                    "are flagged as spikes. Lower = stricter filtering",
-        default=8.0,
-        min=1.0,
-        max=30.0,
-        step=10,
-        precision=1,
-        update=update_parameters
-    )
-    bpy.types.Scene.trellis2_artifact_spike_abs_max = bpy.props.IntProperty(
-        name="Max Spike Count",
-        description="Maximum number of Laplacian-outlier vertices allowed before "
-                    "the mesh is considered corrupt and triggers a retry",
-        default=25,
-        min=1,
-        max=500,
-        update=update_parameters
-    )
-    bpy.types.Scene.trellis2_artifact_max_retries = bpy.props.IntProperty(
-        name="Max Retries",
-        description="Maximum number of retry attempts when artifact filtering "
-                    "detects a corrupt mesh (each retry clears Triton cache and reboots ComfyUI)",
-        default=1,
-        min=0,
-        max=10,
-        update=update_parameters
-    )
-    bpy.types.Scene.trellis2_artifact_fail_on_exhausted = bpy.props.BoolProperty(
-        name="Fail on Exhausted Retries",
-        description="When enabled, the generation will fail instead of proceeding with a "
-                    "potentially corrupt mesh if all artifact-filter retries are exhausted. "
-                    "In queue mode this counts as a failure and triggers a queue-level retry",
         default=False,
         update=update_parameters
     )
@@ -3915,6 +3970,7 @@ def unregister():
     del bpy.types.Scene.qwen_context_cleanup_hue_tolerance
     del bpy.types.Scene.qwen_context_cleanup_value_adjust
     del bpy.types.Scene.qwen_context_fallback_dilation
+    del bpy.types.Scene.qwen_prompt_gray_background
     del bpy.types.Scene.qwen_timestep_zero_ref
 
     # --- PBR Decomposition Properties ---
@@ -3933,7 +3989,7 @@ def unregister():
         'pbr_tile_albedo', 'pbr_tile_material', 'pbr_tile_normal', 'pbr_tile_height',
         'pbr_tile_emission', 'pbr_tile_grid', 'pbr_tile_superres',
         'pbr_processing_resolution', 'pbr_denoise_steps', 'pbr_ensemble_size',
-        'pbr_albedo_auto_saturation', 'pbr_albedo_per_camera_saturation',
+        'pbr_albedo_auto_saturation', 'pbr_albedo_saturation_mode',
         'pbr_replace_color_with_albedo', 'pbr_auto_lighting',
         'pbr_model_variant',  # legacy, kept for compat
     ]
@@ -3943,7 +3999,7 @@ def unregister():
 
     # --- TRELLIS.2 Properties ---
     trellis2_props = [
-        'trellis2_available', 'show_trellis2_params', 'show_trellis2_advanced',
+        'trellis2_available', 'pbr_nodes_available', 'show_trellis2_params', 'show_trellis2_advanced',
         'show_trellis2_mesh_settings', 'show_trellis2_texture_settings',
         'show_trellis2_camera_settings',
         'trellis2_last_input_image', 'qwen_use_trellis2_style', 'qwen_trellis2_style_initial_only',
@@ -3957,7 +4013,7 @@ def unregister():
         'trellis2_consider_existing', 'trellis2_delete_cameras',
         'trellis2_coverage_target',
         'trellis2_max_auto_cameras', 'trellis2_fan_angle',
-        'trellis2_import_scale',
+        'trellis2_import_scale', 'trellis2_shade_mode',
         'trellis2_clamp_elevation', 'trellis2_max_elevation', 'trellis2_min_elevation',
         'trellis2_preview_gallery_enabled', 'trellis2_preview_gallery_count',
         'trellis2_input_image', 'trellis2_resolution', 'trellis2_vram_mode',
@@ -3968,10 +4024,6 @@ def unregister():
         'trellis2_post_processing_enabled',
         'trellis2_auto_lighting',
         'trellis2_skip_texture', 'trellis2_bg_removal', 'trellis2_background_color',
-        'trellis2_fill_holes',
-        'trellis2_artifact_laplacian_sigma', 'trellis2_artifact_spike_abs_max',
-        'trellis2_artifact_max_retries', 'trellis2_artifact_fail_on_exhausted',
-        'show_trellis2_artifact_filter',
     ]
     for prop in trellis2_props:
         if hasattr(bpy.types.Scene, prop):

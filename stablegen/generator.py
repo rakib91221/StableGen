@@ -24,7 +24,7 @@ from gpu_extras.batch import batch_for_shader  # pylint: disable=import-error
 
 from .util.helpers import prompt_text, prompt_text_img2img, prompt_text_qwen_image_edit # pylint: disable=relative-beyond-top-level
 from .render_tools import export_emit_image, export_visibility, export_canny, bake_texture, prepare_baking, unwrap, export_render, export_viewport, render_edge_feather_mask, _SGCameraResolution, _get_camera_resolution, _sg_restore_square_display, _sg_remove_crop_overlay, _sg_ensure_crop_overlay, _sg_hide_label_overlay, _sg_restore_label_overlay # pylint: disable=relative-beyond-top-level
-from .utils import get_last_material_index, get_generation_dirs, get_file_path, get_dir_path, remove_empty_dirs, get_compositor_node_tree, configure_output_node_paths, get_eevee_engine_id # pylint: disable=relative-beyond-top-level
+from .utils import get_last_material_index, get_generation_dirs, get_file_path, get_dir_path, remove_empty_dirs, get_compositor_node_tree, configure_output_node_paths, get_eevee_engine_id, sg_modal_active # pylint: disable=relative-beyond-top-level
 from .project import project_image, reinstate_compare_nodes # pylint: disable=relative-beyond-top-level
 from .workflows import WorkflowManager
 from .util.mirror_color import MirrorReproject, _get_viewport_ref_np, _apply_color_match_to_file
@@ -114,33 +114,21 @@ class Regenerate(bpy.types.Operator):
     _to_texture = None
     @classmethod
     def poll(cls, context):
-        """     
-        Polls whether the operator can be executed.         
-        :param context: Blender context.         
-        :return: True if the operator can be executed, False otherwise.     
-        """
-        # Check for other modal operators
-        operator = None
         addon_prefs = context.preferences.addons[__package__].preferences
         if not os.path.exists(addon_prefs.output_dir):
+            cls.poll_message_set("Output directory not set or does not exist")
             return False
         if not addon_prefs.server_address or not addon_prefs.server_online:
+            cls.poll_message_set("ComfyUI server is not connected")
             return False
         if not (context.scene.generation_method == 'sequential' or context.scene.generation_method == 'separate'):
+            cls.poll_message_set("Regenerate is only available in Sequential or Separate mode")
             return False
         if context.scene.output_timestamp == "":
+            cls.poll_message_set("No previous generation to regenerate from")
             return False
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or\
-                    op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_test_stable' or\
-                    op.bl_idname == 'OBJECT_OT_stablegen_reproject' or op.bl_idname == 'OBJECT_OT_stablegen_regenerate' \
-                          or context.scene.generation_status == 'waiting':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if context.scene.generation_status == 'waiting' or sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
             return False
         return True
 
@@ -164,7 +152,7 @@ class Regenerate(bpy.types.Operator):
             self._to_texture = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
             # If empty, cancel the operation
             if not self._to_texture:
-                self.report({'ERROR'}, "No mesh objects selected for texturing.")
+                self.report({'ERROR'}, "No mesh objects selected. Select mesh objects in the viewport before regenerating.")
                 context.scene.generation_status = 'idle'
                 ComfyUIGenerate._is_running = False
                 return {'CANCELLED'}
@@ -228,26 +216,11 @@ class Reproject(bpy.types.Operator):
     _timer = None
     @classmethod
     def poll(cls, context):
-        """     
-        Polls whether the operator can be executed.         
-        :param context: Blender context.         
-        :return: True if the operator can be executed, False otherwise.     
-        """
-        # Check for other modal operators
-        operator = None
         if context.scene.output_timestamp == "":
+            cls.poll_message_set("No previous generation to reproject from")
             return False
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or\
-                    op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_test_stable' or\
-                    op.bl_idname == 'OBJECT_OT_stablegen_reproject' or op.bl_idname == 'OBJECT_OT_stablegen_regenerate' \
-                          or context.scene.generation_status == 'waiting':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if context.scene.generation_status == 'waiting' or sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
             return False
         return True
 
@@ -567,29 +540,21 @@ class ComfyUIGenerate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        """     
-        Polls whether the operator can be executed.         
-        :param context: Blender context.         
-        :return: True if the operator can be executed, False otherwise.     
-        """
+        if cls._is_running:
+            return True  # Allow cancellation
         # Check for other modal operators
-        operator = None
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or context.scene.generation_status == 'waiting':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if context.scene.generation_status == 'waiting' or sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
             return False
-        # Check if output directory, model directory, and server address are set
         addon_prefs = context.preferences.addons[__package__].preferences
         if not os.path.exists(addon_prefs.output_dir):
+            cls.poll_message_set("Output directory not set or does not exist (check addon preferences)")
             return False
         if not addon_prefs.server_address or not addon_prefs.server_online:
+            cls.poll_message_set("ComfyUI server is not connected")
             return False
-        if bpy.app.online_access == False: # Check if online access is disabled
+        if bpy.app.online_access == False:
+            cls.poll_message_set("Blender's online access is disabled (File → Preferences → System)")
             return False
         return True
 
@@ -682,7 +647,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         self._cameras = [obj for obj in bpy.context.scene.objects if obj.type == 'CAMERA']
         if not self._cameras:
-            self.report({'ERROR'}, "No cameras found in the scene.")
+            self.report({'ERROR'}, "No cameras found in the scene. Use 'Add Cameras' to create them.")
             context.scene.generation_status = 'idle'
             context.scene.sg_last_gen_error = True
             ComfyUIGenerate._is_running = False
@@ -732,7 +697,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         # Check if there is at least one ControlNet unit
         controlnet_units = getattr(context.scene, "controlnet_units", [])
         if not controlnet_units and not (context.scene.use_flux_lora and context.scene.model_architecture == 'flux1') and context.scene.model_architecture != 'flux2_klein':
-            self.report({'ERROR'}, "At least one ControlNet unit is required to run the operator.")
+            self.report({'ERROR'}, "At least one ControlNet unit is required. Add one in the Guidance section below.")
             context.scene.generation_status = 'idle'
             context.scene.sg_last_gen_error = True
             ComfyUIGenerate._is_running = False
@@ -743,7 +708,7 @@ class ComfyUIGenerate(bpy.types.Operator):
         
         # If there are curves within the scene, warn the user
         if any(obj.type == 'CURVE' for obj in bpy.context.view_layer.objects):
-            self.report({'WARNING'}, "Curves detected in the scene. This may cause issues with the generation process. Consider removing them before proceeding.")
+            self.report({'WARNING'}, "Curves detected in the scene. Consider using 'Convert Curves to Mesh' in the Tools section.")
         
         if context.scene.generation_mode == 'project_only':
             print(f"Reprojecting images for {len(self._cameras)} cameras")
@@ -778,7 +743,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             # 1 temporary buffer UV slot for the UV Project modifier
             has_buffer = obj.data.uv_layers.get("_SG_ProjectionBuffer") is not None
             if not has_buffer and len(obj.data.uv_layers) >= 8:
-                self.report({'ERROR'}, "Not enough UV map slots. Please remove at least 1 UV map to free a slot for the projection buffer.")
+                self.report({'ERROR'}, "Not enough UV map slots (max 8). Remove an existing UV map on the object to free a slot for the projection buffer.")
                 context.scene.generation_status = 'idle'
                 context.scene.sg_last_gen_error = True
                 ComfyUIGenerate._is_running = False
@@ -853,7 +818,7 @@ class ComfyUIGenerate(bpy.types.Operator):
                         else:
                             error = True
                 if error:
-                    self.report({'ERROR'}, f"Cannot use UV inpainting with the material of object '{obj.name}': incompatible material. The generated material has to be active.")
+                    self.report({'ERROR'}, f"Cannot use UV inpainting with the material of object '{obj.name}'. The generated StableGen material must be the active material.")
                     context.scene.generation_status = 'idle'
                     ComfyUIGenerate._is_running = False
                     render.resolution_percentage = self._original_resolution_percentage
@@ -1584,6 +1549,7 @@ class ComfyUIGenerate(bpy.types.Operator):
             self._pbr_maps = {}
             # Collect camera images that need PBR decomposition
             camera_images = {}  # cam_idx → image_path
+            per_camera_missing = {}  # cam_idx → set of missing map names (reproject only)
             num_cameras = len(self._cameras)
             for cam_idx in range(num_cameras):
                 cam_image_path = get_file_path(
@@ -1595,29 +1561,45 @@ class ComfyUIGenerate(bpy.types.Operator):
                     # maps when all enabled maps are already on disk.  This
                     # avoids re-running the slow ComfyUI decomposition.
                     if context.scene.generation_mode == 'project_only':
-                        existing = self._find_existing_pbr_maps(
+                        existing, missing = self._find_existing_pbr_maps(
                             context, cam_idx)
-                        if existing:
-                            # Ensure raw copies exist for backward compat
-                            # (pre-feature files). Batch post-processing
-                            # runs after the loop collects all cameras.
+                        if not missing:
+                            # All maps present — fully reuse
                             self._ensure_raw_copies(
                                 context, cam_idx, existing)
                             self._pbr_maps[cam_idx] = existing
                             print(f"[StableGen] Reusing existing PBR maps "
                                   f"for camera {cam_idx}")
                             continue
+                        # Some maps exist, some are missing — seed existing
+                        # maps so the batched function only generates what's
+                        # missing.
+                        if existing:
+                            self._ensure_raw_copies(
+                                context, cam_idx, existing)
+                            self._pbr_maps[cam_idx] = existing
+                        per_camera_missing[cam_idx] = missing
                         print(f"[StableGen] PBR maps missing for camera "
-                              f"{cam_idx}, running decomposition…")
+                              f"{cam_idx}: {missing}, running selective decomposition…")
                     camera_images[cam_idx] = cam_image_path
             if camera_images:
-                self._run_pbr_decomposition_batched(context, camera_images)
+                self._run_pbr_decomposition_batched(
+                    context, camera_images,
+                    per_camera_missing=per_camera_missing if per_camera_missing else None)
+                if self._error:
+                    return
 
             # ── Batch post-processing (albedo sat/contrast, roughness scale) ──
             # Runs after ALL cameras have raw maps saved, so auto-saturation
             # can average across all cameras uniformly.
             if self._pbr_maps:
                 self._apply_albedo_postprocessing_batch(context)
+
+            # ── Persist per-map settings hashes so future reprojects can
+            #    detect stale maps and only regenerate what changed. ──
+            if camera_images:
+                for cam_idx in camera_images:
+                    self._save_pbr_settings(context, cam_idx)
 
         def image_project_callback():
             if context.scene.generation_method == 'sequential':
@@ -1752,15 +1734,160 @@ class ComfyUIGenerate(bpy.types.Operator):
             self._uploaded_images_cache.pop(os.path.abspath(image_path), None)
 
     # ── PBR Decomposition ──────────────────────────────────────────────
-    def _find_existing_pbr_maps(self, context, camera_id):
-        """Check if all enabled PBR maps already exist on disk for a camera.
 
-        Returns a dict ``{map_name: file_path}`` when every required map
-        is present, or ``None`` if any enabled map is missing (the caller
-        should run decomposition in that case).
+    @staticmethod
+    def _pbr_settings_hash(settings_dict):
+        """Return a short hex hash for a dict of PBR settings."""
+        import hashlib
+        raw = json.dumps(settings_dict, sort_keys=True, default=str)
+        return hashlib.md5(raw.encode()).hexdigest()[:12]
+
+    def _pbr_per_map_settings(self, context):
+        """Compute per-map settings dicts that affect each PBR output.
+
+        Returns ``{map_name: {setting_key: value, ...}}`` for every
+        map type.  Two dicts compare equal iff the same generation would
+        produce identical output.
+
+        Tiling modes are resolved to effective booleans so that e.g.
+        ``selective`` (albedo-only) and ``custom`` with only albedo
+        enabled produce identical hashes for every map.
+        """
+        scene = context.scene
+        # ── Common model settings (affect all server-side outputs) ────
+        common = {
+            'resolution': getattr(scene, 'pbr_processing_resolution', 768),
+            'native_res': getattr(scene, 'pbr_use_native_resolution', True),
+            'denoise_steps': getattr(scene, 'pbr_denoise_steps', 4),
+            'ensemble_size': getattr(scene, 'pbr_ensemble_size', 1),
+        }
+
+        albedo_source = getattr(scene, 'pbr_albedo_source', 'delight')
+
+        # ── Resolve effective per-map tiling booleans ─────────────────
+        tile_mode = getattr(scene, 'pbr_tiling', 'off')
+        tile_grid = getattr(scene, 'pbr_tile_grid', 2)
+        tile_superres = getattr(scene, 'pbr_tile_superres', False)
+
+        tile_albedo = getattr(scene, 'pbr_tile_albedo', True) if tile_mode == 'custom' else (tile_mode in ('selective', 'all'))
+        tile_material = getattr(scene, 'pbr_tile_material', False) if tile_mode == 'custom' else (tile_mode == 'all')
+        tile_normal = getattr(scene, 'pbr_tile_normal', False) if tile_mode == 'custom' else (tile_mode == 'all')
+        tile_height = getattr(scene, 'pbr_tile_height', False) if tile_mode == 'custom' else (tile_mode == 'all')
+        tile_emission = getattr(scene, 'pbr_tile_emission', False) if tile_mode == 'custom' else False
+
+        def tiling_dict(is_tiled):
+            """Return tiling sub-dict; grid/superres only matter when tiled."""
+            if is_tiled:
+                return {'tiled': True, 'tile_grid': tile_grid,
+                        'tile_superres': tile_superres}
+            return {'tiled': False}
+
+        settings = {}
+
+        settings['albedo'] = {
+            **common,
+            **tiling_dict(tile_albedo),
+            'source': albedo_source,
+            'delight_strength': getattr(scene, 'pbr_delight_strength', 1.0) if albedo_source == 'delight' else None,
+            'auto_saturation': getattr(scene, 'pbr_albedo_auto_saturation', False),
+            'saturation_mode': getattr(scene, 'pbr_albedo_saturation_mode', 'MEDIAN') if getattr(scene, 'pbr_albedo_auto_saturation', False) else None,
+        }
+        settings['roughness'] = {
+            **common,
+            **tiling_dict(tile_material),
+        }
+        settings['metallic'] = {
+            **common,
+            **tiling_dict(tile_material),
+        }
+        settings['normal'] = {
+            **common,
+            **tiling_dict(tile_normal),
+        }
+        settings['height'] = {
+            **common,
+            **tiling_dict(tile_height),
+        }
+
+        emission_method = getattr(scene, 'pbr_emission_method', 'residual')
+        emission_base = {
+            'method': emission_method,
+            'threshold': getattr(scene, 'pbr_emission_threshold', 0.2),
+        }
+        if emission_method == 'hsv':
+            emission_base.update({
+                'sat_min': getattr(scene, 'pbr_emission_saturation_min', 0.5),
+                'val_min': getattr(scene, 'pbr_emission_value_min', 0.85),
+                'bloom': getattr(scene, 'pbr_emission_bloom', 5.0),
+            })
+        else:
+            # Residual method uses a model pass
+            emission_base.update({
+                **common,
+                **tiling_dict(tile_emission),
+            })
+        settings['emission'] = emission_base
+
+        return settings
+
+    def _pbr_sidecar_path(self, context):
+        """Return the path for the single PBR settings sidecar JSON file."""
+        dirs = get_generation_dirs(context)
+        base_dir = dirs["pbr"]
+        material_suffix = f"-{self._material_id}" if self._material_id is not None else ""
+        return os.path.join(base_dir, f"pbr_settings{material_suffix}.json")
+
+    def _save_pbr_settings(self, context, camera_id):
+        """Write current per-map settings hashes for *camera_id* into
+        the shared sidecar JSON file (merges with existing data)."""
+        settings = self._pbr_per_map_settings(context)
+        hashes = {k: self._pbr_settings_hash(v) for k, v in settings.items()}
+        path = self._pbr_sidecar_path(context)
+        # Load existing data to merge
+        data = {}
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+        data[str(camera_id)] = hashes
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=1)
+        except Exception as e:
+            print(f"[StableGen] Warning: could not write PBR settings "
+                  f"sidecar {path}: {e}")
+
+    def _load_pbr_settings(self, context, camera_id):
+        """Load stored per-map settings hashes for *camera_id* from the
+        shared sidecar JSON file.
+
+        Returns a dict ``{map_name: hash_string}`` or ``None`` if no
+        sidecar or camera entry exists.
+        """
+        path = self._pbr_sidecar_path(context)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+            return data.get(str(camera_id))
+        except Exception:
+            return None
+
+    def _find_existing_pbr_maps(self, context, camera_id):
+        """Check which enabled PBR maps already exist on disk for a camera.
+
+        Returns ``(existing, missing)`` where *existing* is a dict
+        ``{map_name: file_path}`` of maps already on disk **whose settings
+        hash matches the current configuration**, and *missing* is a set of
+        map names that are enabled but either not found or stale.
         """
         scene = context.scene
         existing = {}
+        missing = set()
 
         map_checks = []
         if getattr(scene, 'pbr_map_albedo', True):
@@ -1777,7 +1904,13 @@ class ComfyUIGenerate(bpy.types.Operator):
             map_checks.append('emission')
 
         if not map_checks:
-            return None
+            return existing, missing
+
+        # Load stored hashes and compute current ones for comparison
+        stored_hashes = self._load_pbr_settings(context, camera_id)
+        current_settings = self._pbr_per_map_settings(context)
+        current_hashes = {k: self._pbr_settings_hash(v)
+                         for k, v in current_settings.items()}
 
         for map_name in map_checks:
             path = get_file_path(
@@ -1785,11 +1918,17 @@ class ComfyUIGenerate(bpy.types.Operator):
                 camera_id=camera_id, material_id=self._material_id
             )
             if os.path.exists(path):
-                existing[map_name] = path
+                # Check if settings have changed since last generation
+                if (stored_hashes is not None
+                        and stored_hashes.get(map_name) == current_hashes.get(map_name)):
+                    existing[map_name] = path
+                else:
+                    # File exists but settings changed → stale, regenerate
+                    missing.add(map_name)
             else:
-                return None  # At least one required map is missing
+                missing.add(map_name)
 
-        return existing
+        return existing, missing
 
     # ── Tiled PBR processing ──────────────────────────────────────────
 
@@ -2121,16 +2260,18 @@ class ComfyUIGenerate(bpy.types.Operator):
             print(f"    Warning: saturation computation failed: {err}")
             return 0.0
 
-    def _compute_avg_auto_saturation(self, context):
-        """Compute the average auto-saturation ratio across ALL cameras.
+    def _compute_uniform_saturation(self, context, use_median=True):
+        """Compute a uniform auto-saturation ratio across ALL cameras.
 
         Compares each camera's original rendered image against its raw
-        PBR albedo, computes per-camera ratios, then averages them.
-        This ensures uniform albedo saturation regardless of per-camera
-        lighting differences.
+        PBR albedo, computes per-camera ratios, then aggregates them
+        using the **median** (robust to outlier cameras) or arithmetic
+        **mean**, depending on *use_median*.
 
         Returns a float multiplier (1.0 = no correction needed).
         """
+        import statistics
+
         ratios = []
         num_cameras = len(self._cameras) if hasattr(self, '_cameras') else 0
 
@@ -2159,10 +2300,16 @@ class ComfyUIGenerate(bpy.types.Operator):
         if not ratios:
             return 1.0
 
-        avg = sum(ratios) / len(ratios)
+        if use_median:
+            agg = statistics.median(ratios)
+            label = "median"
+        else:
+            agg = sum(ratios) / len(ratios)
+            label = "mean"
+
         print(f"[StableGen] Auto saturation: per-camera ratios = "
-              f"{[f'{r:.2f}' for r in ratios]}, average = {avg:.2f}")
-        return avg
+              f"{[f'{r:.2f}' for r in ratios]}, {label} = {agg:.2f}")
+        return agg
 
     def _apply_albedo_postprocessing_batch(self, context):
         """Apply auto-saturation correction to all camera albedos.
@@ -2181,14 +2328,15 @@ class ComfyUIGenerate(bpy.types.Operator):
             self._restore_raw_albedos(context)
             return
 
-        per_camera = getattr(context.scene, 'pbr_albedo_per_camera_saturation', False)
+        sat_mode = getattr(context.scene, 'pbr_albedo_saturation_mode', 'MEDIAN')
 
-        if per_camera:
+        if sat_mode == 'PER_CAMERA':
             # Per-camera mode: individual ratio per camera
             self._apply_per_camera_saturation(context)
         else:
-            # Uniform mode: averaged ratio across all cameras
-            effective_sat = self._compute_avg_auto_saturation(context)
+            # Uniform mode (MEDIAN or MEAN)
+            effective_sat = self._compute_uniform_saturation(
+                context, use_median=(sat_mode == 'MEDIAN'))
 
             if effective_sat == 1.0:
                 print("[StableGen] Albedo saturation correction: no-op (ratio ≈ 1.0)")
@@ -2318,7 +2466,8 @@ class ComfyUIGenerate(bpy.types.Operator):
             except Exception as err:
                 print(f"    Warning: could not create raw albedo copy: {err}")
 
-    def _run_pbr_decomposition_batched(self, context, camera_images):
+    def _run_pbr_decomposition_batched(self, context, camera_images,
+                                       per_camera_missing=None):
         """Run PBR decomposition **model-first** across all cameras.
 
         Instead of iterating cameras → models (which forces repeated model
@@ -2329,14 +2478,29 @@ class ComfyUIGenerate(bpy.types.Operator):
             context: Blender context.
             camera_images: ``{cam_idx: image_path}`` for cameras that need
                 processing.
+            per_camera_missing: Optional ``{cam_idx: set_of_missing_map_names}``.
+                When provided (reproject mode), only the models needed to
+                produce the missing maps are executed, and cameras that
+                already have a model's outputs are skipped.
         """
         scene = context.scene
         self._stage = "PBR Decomposition"
         self._progress = 0
         num_cams = len(camera_images)
         cam_ids = sorted(camera_images.keys())
-        print(f"[StableGen] Running batched PBR decomposition on "
-              f"{num_cams} camera(s)…")
+
+        # When per_camera_missing is provided, compute the union of all
+        # missing maps to determine which models we actually need.
+        if per_camera_missing:
+            all_missing = set()
+            for missing_set in per_camera_missing.values():
+                all_missing |= missing_set
+            print(f"[StableGen] Running selective PBR decomposition on "
+                  f"{num_cams} camera(s), missing maps: {all_missing}")
+        else:
+            all_missing = None
+            print(f"[StableGen] Running batched PBR decomposition on "
+                  f"{num_cams} camera(s)…")
 
         # Free VRAM before loading PBR models — the previous generation
         # model may still be cached, and Marigold/StableDelight need
@@ -2362,6 +2526,8 @@ class ComfyUIGenerate(bpy.types.Operator):
         use_lighting_albedo = (want_albedo and albedo_source == 'lighting')
 
         # ── Determine which Marigold models to run ────────────────────
+        # When all_missing is set (selective rerun), only models whose
+        # outputs intersect with the missing set are scheduled.
         need_appearance = (
             (want_albedo and albedo_source == 'marigold')
             or want_roughness
@@ -2374,6 +2540,16 @@ class ComfyUIGenerate(bpy.types.Operator):
             (want_emission and emission_method == 'residual')
             or use_lighting_albedo
         )
+
+        if all_missing is not None:
+            # Selective mode: narrow down to only models producing missing maps
+            need_appearance = need_appearance and bool(
+                all_missing & {'albedo', 'roughness', 'metallic'})
+            need_normals = need_normals and 'normal' in all_missing
+            need_height = need_height and 'height' in all_missing
+            need_iid_lighting = need_iid_lighting and bool(
+                all_missing & {'emission', 'albedo'})
+            use_delight = use_delight and 'albedo' in all_missing
 
         models_to_run = []
         if need_appearance:
@@ -2481,6 +2657,21 @@ class ComfyUIGenerate(bpy.types.Operator):
 
         model_step = 0
 
+        # Helper: map model short names to the final PBR map names they
+        # produce, used for per-camera skipping in selective mode.
+        _MODEL_OUTPUT_MAPS = {
+            'appearance': {'albedo', 'roughness', 'metallic'},
+            'normals':    {'normal'},
+            'depth':      {'height'},
+            'lighting':   {'emission', 'albedo'},  # residual → emission, lighting → albedo
+        }
+
+        def _camera_needs_model(cam_idx, model_key):
+            """Return True if this camera still needs outputs from *model_key*."""
+            if per_camera_missing is None or cam_idx not in per_camera_missing:
+                return True  # full run, always needed
+            return bool(per_camera_missing[cam_idx] & _MODEL_OUTPUT_MAPS.get(model_key, set()))
+
         # ── StableDelight pass (all cameras) ──────────────────────────
         if use_delight:
             model_step += 1
@@ -2492,6 +2683,11 @@ class ComfyUIGenerate(bpy.types.Operator):
                   f"StableDelight{tile_label}")
 
             for ci, cam_idx in enumerate(cam_ids):
+                # Skip camera if albedo already exists in selective mode
+                if per_camera_missing and cam_idx in per_camera_missing:
+                    if 'albedo' not in per_camera_missing[cam_idx]:
+                        print(f"    Camera {cam_idx}: albedo exists, skipping StableDelight")
+                        continue
                 image_path = camera_images[cam_idx]
                 self._pbr_cam = ci
                 self._stage = (f"PBR: StableDelight "
@@ -2512,7 +2708,8 @@ class ComfyUIGenerate(bpy.types.Operator):
 
                 if isinstance(result, dict) and "error" in result:
                     print(f"    StableDelight error: {result['error']}")
-                    self._warning = f"StableDelight failed: {result['error']}"
+                    self._error = f"StableDelight failed: {result['error']}"
+                    return
                 elif isinstance(result, bytes):
                     pbr_path = get_file_path(
                         context, "pbr", subtype="albedo",
@@ -2542,6 +2739,15 @@ class ComfyUIGenerate(bpy.types.Operator):
                   f"{model_name}{tile_label}")
 
             for ci, cam_idx in enumerate(cam_ids):
+                # Selective mode: skip camera if it doesn't need this model
+                model_key = ('appearance' if is_iid
+                             else 'lighting' if is_iid_lighting
+                             else 'normals' if 'normals' in model_short
+                             else 'depth')
+                if not _camera_needs_model(cam_idx, model_key):
+                    print(f"    Camera {cam_idx}: already has outputs for "
+                          f"{model_key}, skipping")
+                    continue
                 image_path = camera_images[cam_idx]
                 self._pbr_cam = ci
                 self._stage = (f"PBR: {model_short} "
@@ -2670,9 +2876,9 @@ class ComfyUIGenerate(bpy.types.Operator):
 
                 if isinstance(result, dict) and "error" in result:
                     print(f"    PBR model error: {result['error']}")
-                    self._warning = (f"PBR decomposition failed: "
+                    self._error = (f"PBR decomposition failed: "
                                      f"{result['error']}")
-                    continue
+                    return
 
                 # ── Save each output component ────────────────────
                 self._save_pbr_map_outputs(
@@ -2693,6 +2899,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                 print(f"[StableGen]   Post-processing emission (residual "
                       f"gating) – step {model_step}/{total_model_steps}")
                 for ci, cam_idx in enumerate(cam_ids):
+                    if per_camera_missing and cam_idx in per_camera_missing:
+                        if 'emission' not in per_camera_missing[cam_idx]:
+                            continue
                     self._pbr_cam = ci
                     self._stage = (f"PBR: Emission gating "
                                    f"(cam {ci+1}/{num_cams})")
@@ -2707,6 +2916,9 @@ class ComfyUIGenerate(bpy.types.Operator):
                 print(f"[StableGen]   Emission via HSV threshold "
                       f"– step {model_step}/{total_model_steps}")
                 for ci, cam_idx in enumerate(cam_ids):
+                    if per_camera_missing and cam_idx in per_camera_missing:
+                        if 'emission' not in per_camera_missing[cam_idx]:
+                            continue
                     self._pbr_cam = ci
                     self._stage = (f"PBR: HSV emission "
                                    f"(cam {ci+1}/{num_cams})")
@@ -3777,21 +3989,21 @@ class Trellis2Generate(bpy.types.Operator):
             return True  # Allow cancellation
         addon_prefs = context.preferences.addons[__package__].preferences
         if not addon_prefs.server_address or not addon_prefs.server_online:
+            cls.poll_message_set("ComfyUI server is not connected")
             return False
         if not os.path.exists(addon_prefs.output_dir):
+            cls.poll_message_set("Output directory not set or does not exist (check addon preferences)")
             return False
         if bpy.app.online_access == False:
+            cls.poll_message_set("Blender's online access is disabled (File → Preferences → System)")
             return False
-        # Check that an input image is specified (only required when generate_from = image)
         gen_from = getattr(context.scene, 'trellis2_generate_from', 'image')
         if gen_from == 'image' and not context.scene.trellis2_input_image:
+            cls.poll_message_set("No input image selected for TRELLIS.2 generation")
             return False
-        # Check no other generation is running
-        for window in context.window_manager.windows:
-            for op in window.modal_operators:
-                if op.bl_idname in ('OBJECT_OT_test_stable', 'OBJECT_OT_trellis2_generate',
-                                    'OBJECT_OT_bake_textures', 'OBJECT_OT_add_cameras'):
-                    return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
         return True
 
     def execute(self, context):
@@ -4064,6 +4276,13 @@ class Trellis2Generate(bpy.types.Operator):
                             bpy.context.view_layer.objects.active = imported_objects[0]
                             bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
                             print(f"[TRELLIS2] Scaled mesh to {target_bu} BU (factor {scale_factor:.4f})")
+
+            # --- Apply shading mode to imported meshes ---
+            _shade_mode = getattr(context.scene, 'trellis2_shade_mode', 'flat')
+            if _shade_mode == 'smooth':
+                bpy.ops.object.shade_smooth()
+            elif _shade_mode == 'auto_smooth':
+                bpy.ops.object.shade_auto_smooth()
 
             # --- Optional studio lighting for native PBR textures ---
             tex_mode = getattr(self, '_texture_mode', 'native')

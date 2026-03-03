@@ -1797,7 +1797,7 @@ prompt_text_trellis2_shape_only = """
     "inputs": {
       "trimesh": ["5", 1],
       "target_face_count": 100000,
-      "fill_holes": true,
+      "fill_holes": false,
       "remesh": false,
       "remesh_band": 1.0
     },

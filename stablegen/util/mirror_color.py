@@ -5,7 +5,7 @@ from PIL import Image
 import mathutils
 from mathutils import Vector
 
-from ..utils import get_file_path, get_last_material_index
+from ..utils import get_file_path, get_last_material_index, sg_modal_active
 from ..project import project_image
 from ..color_match import color_match_single
 
@@ -92,21 +92,8 @@ class MirrorReproject(bpy.types.Operator):
         if scene.generation_status == 'waiting':
             return False
 
-        blocked_ids = {
-            'OBJECT_OT_add_cameras',
-            'OBJECT_OT_bake_textures',
-            'OBJECT_OT_collect_camera_prompts',
-            'OBJECT_OT_test_stable',
-            'OBJECT_OT_stablegen_reproject',
-            'OBJECT_OT_stablegen_regenerate',
-            'OBJECT_OT_stablegen_mirror_reproject',
-        }
-
-        wm = context.window_manager
-        for window in wm.windows:
-            for op in window.modal_operators:
-                if op.bl_idname in blocked_ids:
-                    return False
+        if sg_modal_active(context):
+            return False
 
         return True
 

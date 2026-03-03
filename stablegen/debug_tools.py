@@ -27,7 +27,7 @@ from .render_tools import (
     export_visibility,
     _get_camera_resolution,
 )
-from .utils import get_file_path, get_generation_dirs, ensure_dirs_exist
+from .utils import get_file_path, get_generation_dirs, ensure_dirs_exist, sg_modal_active
 
 
 # ─── Shared helpers ──────────────────────────────────────────────────────
@@ -55,11 +55,8 @@ def _common_poll(cls, context):
     if not _get_cameras(context):
         return False
     # Block while another heavy modal is running
-    for w in context.window_manager.windows:
-        for op in w.modal_operators:
-            if op.bl_idname in ('OBJECT_OT_test_stable', 'OBJECT_OT_bake_textures',
-                                'OBJECT_OT_add_cameras'):
-                return False
+    if sg_modal_active(context):
+        return False
     return True
 
 
@@ -815,6 +812,8 @@ class SG_OT_DebugRestoreMaterial(bpy.types.Operator):
     def poll(cls, context):
         prefs = context.preferences.addons.get(__package__)
         if not prefs or not prefs.preferences.enable_debug:
+            return False
+        if sg_modal_active(context):
             return False
         return bool(_get_target_meshes(context))
 

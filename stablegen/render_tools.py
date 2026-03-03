@@ -1276,7 +1276,14 @@ def export_visibility(context, to_export, obj=None, camera_visibility=None, prep
 
         while True:
             # Remove color ramp connected to fac, connect directly to color ramp's fac
+            if not color_mix.inputs[0].links:
+                break
             color_ramp = color_mix.inputs[0].links[0].from_node
+            if not color_ramp.inputs[0].links:
+                # Color ramp Fac is unlinked (constant value) — remove it and
+                # fall through so the rest of the chain is wired correctly.
+                nodes.remove(color_ramp)
+                break
             fac_node = color_ramp.inputs[0].links[0].from_node
             # Add subtract node
             subtract = nodes.new("ShaderNodeMath")
@@ -3872,20 +3879,10 @@ class AddCameras(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Check for any running modal operator
-        operator = None
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_test_stable' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_bake_textures' or op.bl_idname == 'OBJECT_OT_add_cameras':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
             return False
-        return not any(op.bl_idname == cls.bl_idname
-                       for w in context.window_manager.windows
-                       for op in w.modal_operators)
+        return True
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -3923,12 +3920,9 @@ class CloneCamera(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        for window in context.window_manager.windows:
-            for op in window.modal_operators:
-                if op.bl_idname in ('OBJECT_OT_test_stable', 'OBJECT_OT_collect_camera_prompts',
-                                    'OBJECT_OT_bake_textures', 'OBJECT_OT_add_cameras',
-                                    'OBJECT_OT_clone_camera'):
-                    return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
         return True
 
     def execute(self, context):
@@ -4201,6 +4195,10 @@ class ApplyCameraOrderPreset(bpy.types.Operator):
         default='FRONT_FIRST'
     ) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return not sg_modal_active(context)
+
     def execute(self, context):
         scene = context.scene
 
@@ -4354,18 +4352,13 @@ class CollectCameraPrompts(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Check for any running modal operator
-        operator = None
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_test_stable' or op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_bake_textures' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
             return False
-        return any(obj.type == 'CAMERA' for obj in context.scene.objects)
+        if not any(obj.type == 'CAMERA' for obj in context.scene.objects):
+            cls.poll_message_set("No cameras in the scene — use 'Add Cameras' first")
+            return False
+        return True
 
     def invoke(self, context, event):
         # Use selected cameras if any are selected, otherwise fall back to all
@@ -4449,7 +4442,10 @@ class SwitchMaterial(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return not sg_modal_active(context)
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -5187,28 +5183,13 @@ class BakeTextures(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        """     
-        Checks if the operator can be executed
-        :param context: Blender context.
-        :return: True if the operator can be executed, False otherwise.
-        """
-        # Check for any running modal operator
-        operator = None
-        for window in context.window_manager.windows:
-                for op in window.modal_operators:
-                    if op.bl_idname == 'OBJECT_OT_test_stable' or op.bl_idname == 'OBJECT_OT_add_cameras' or op.bl_idname == 'OBJECT_OT_collect_camera_prompts' or op.bl_idname == 'OBJECT_OT_bake_textures':
-                        operator = op
-                        break
-                if operator:
-                    break
-        if operator:
+        if sg_modal_active(context):
+            self.poll_message_set("Another operation is in progress")
             return False
-        
         addon_prefs = context.preferences.addons[__package__].preferences
         if not os.path.exists(addon_prefs.output_dir):
+            self.poll_message_set("Output directory not set or does not exist (check addon preferences)")
             return False
-        
-        # Check if there are any textures to bake
         return True
 
     def draw(self, context):
@@ -5760,18 +5741,21 @@ class ExportOrbitGIF(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        # Check if imageio is available
         try:
             import imageio
-            # Optionally check for ffmpeg plugin if strict MP4 support is needed
-            # This basic check is usually sufficient as imageio tries to find ffmpeg
         except ImportError:
+            cls.poll_message_set("Python module 'imageio' not installed")
             return False
-        # Check for active object (Mesh or Empty) and active camera
-        return (context.active_object is not None
-                and context.active_object.type in {'MESH', 'EMPTY'}
-                and context.scene.camera is not None
-                and not sg_modal_active(context))
+        if context.active_object is None or context.active_object.type not in {'MESH', 'EMPTY'}:
+            cls.poll_message_set("Select a mesh or empty object first")
+            return False
+        if context.scene.camera is None:
+            cls.poll_message_set("No active camera in the scene")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def invoke(self, context, event):
         # Check dependency again in invoke to provide feedback
@@ -6633,7 +6617,13 @@ class ExportForGameEngine(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         addon_prefs = context.preferences.addons[__package__].preferences
-        return os.path.exists(addon_prefs.output_dir) and not sg_modal_active(context)
+        if not os.path.exists(addon_prefs.output_dir):
+            cls.poll_message_set("Output directory not set or does not exist (check addon preferences)")
+            return False
+        if sg_modal_active(context):
+            cls.poll_message_set("Another operation is in progress")
+            return False
+        return True
 
     def draw(self, context):
         layout = self.layout
