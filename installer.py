@@ -548,7 +548,7 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
     # --- TRELLIS.2 ---
     "cn_trellis2": {
         "id": "cn_trellis2", "type": "node", "name": "ComfyUI TRELLIS.2",
-        "git_url": "https://github.com/PozzettiAndrea/ComfyUI-TRELLIS2.git",
+        "git_url": "https://github.com/sakalond/ComfyUI-TRELLIS2.git",
         "commit": "6b0b2148f45bbafa0b86bfd25c63602b63a7aae0",
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-TRELLIS2",
