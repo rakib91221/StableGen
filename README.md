@@ -344,8 +344,33 @@ The `installer.py` script (found in this repository) automates the download and 
         ```
         Replace `<YourComfyUIDirectory>` with the actual path. If omitted, the script will prompt for it.
 3.  **Follow On-Screen Instructions:**
-    * The script will display a menu of installation packages (Minimal, Essential, Recommended, Complete SDXL, plus Qwen-specific bundles). Choose the option that matches the feature set you want to install.
+    * The script will display a menu of installation packages. Choose the option(s) that match the features you need.
     * It will download and place files into the correct subdirectories of `<YourComfyUIDirectory>`.
+
+**Installer Packages Overview:**
+
+| # | Package | What it enables | Size |
+|---|---------|-----------------|------|
+| 1 | Minimal Core | Basic SDXL texturing (bring your own checkpoint + ControlNets) | ~7.3 GB |
+| 2 | Core + Preset Essentials | All built-in presets work out of the box | ~9.8 GB |
+| 3 | **Recommended** Full SDXL Setup | SDXL texturing + PBR decomposition (no checkpoint) | ~19.3 GB |
+| 4 | Complete SDXL + RealVisXL | Everything in #3 plus a ready-to-use checkpoint | ~26.3 GB |
+| 5 | Qwen Core | Qwen Image Edit texturing architecture | ~20.3 GB |
+| 6 | Qwen + Lightning LoRAs | Qwen with additional Lightning LoRAs | ~22.6 GB |
+| 7 | Qwen Nunchaku | Qwen with Int4 quantized Nunchaku model (lower VRAM) | ~33.0 GB |
+| 8 | TRELLIS.2 | Image/text-to-3D mesh generation (models auto-download on first use) | ~0.1 GB |
+| 9 | Marigold IID | PBR decomposition node (models auto-download on first use) | ~0.01 GB |
+| 10 | StableDelight | Specular-free albedo for PBR (includes model download) | ~3.3 GB |
+| 11 | FLUX.2 Klein *(experimental)* | Klein texturing architecture (~13 GB VRAM required) | ~12.4 GB |
+
+**Common setups:**
+- **Full 3D asset generation (SDXL):** Options 3 + 8 (or 4 + 8 with a checkpoint included)
+- **Full 3D asset generation (Qwen):** Options 6 + 8
+- **Texturing only (SDXL):** Option 3 (or 4)
+- **Texturing only (Qwen):** Option 5 (or 6/7)
+- **Add PBR to any setup:** Options 9 + 10 (included in options 3 and 4)
+
+> **Note:** Some packages (TRELLIS.2, Marigold IID) download additional models automatically on first use via ComfyUI. Expect extra downloads the first time you run these features.
 4.  **Restart ComfyUI:** If ComfyUI was running, restart it to load new custom nodes.
 
 *(For manual dependency installation-including FLUX.1-dev and Qwen Image Edit setups-see `docs/MANUAL_INSTALLATION.md`.)*
@@ -418,32 +443,32 @@ Follow these steps to generate a fully textured 3D mesh from a text prompt or re
 
 ## 📖 Usage & Parameters Overview
 
-StableGen provides a comprehensive interface for controlling your AI texturing process, from initial setup to final output. Here's an overview of the main sections and tools available in the StableGen panel:
+StableGen provides a comprehensive interface for AI-powered 3D asset generation and texturing, from mesh creation to final PBR export. Here's an overview of the main sections and tools available in the StableGen panel:
 
 ### Primary Actions & Scene Setup
 
 These are the main operational buttons and initial setup tools, generally found near the top of the StableGen panel:
 
-* **Generate / Cancel Generation (Main Button):** This is the primary button to start the AI texture generation process for meshe objects based on your current settings. It communicates with the ComfyUI backend. While processing, the button changes to "Cancel Generation," allowing you to stop the current task. Progress bars will appear below this button during generation.
-* **Bake Textures:** Converts the dynamic, multi-projection material StableGen creates on your meshes into a single, standard UV-mapped image texture per object. This is essential for exporting or simplifying scenes. You can set the resolution and UV unwrapping method for the bake. This option is crucial for finalizing your AI-generated textures into a portable format.
+* **Generate / Cancel Generation (Main Button):** Starts either 3D mesh generation (TRELLIS.2 pipeline) or texture generation for existing mesh objects, depending on the current mode. While processing, the button changes to "Cancel Generation." Progress bars (overall, phase, and per-step) appear below this button during generation.
+* **Bake Textures:** Converts the dynamic, multi-projection material into a single, standard UV-mapped image texture per object. Also bakes PBR maps (albedo, roughness, metallic, normal, height, AO, emission) if PBR decomposition was enabled. Defaults to Smart UV Project unwrapping. Essential for exporting to game engines.
 * **Add Cameras:** Set up multiple viewpoints using one of 7 placement strategies - from simple orbit rings to geometry-aware occlusion-optimized placement with per-camera aspect ratios. Use the interactive preview to fine-tune placement before confirming.
 * **Collect Camera Prompts:** Cycles through all cameras in your scene, allowing you to type a specific descriptive text prompt for each viewpoint (e.g., "front view," "close-up on face"). These per-camera prompts are used in conjunction with the main prompt if `Use camera prompts` is enabled in `Viewpoint Blending Settings`.
 
 ### Preset Management
 
 * Located prominently in the UI, this system allows you to:
-    * **Select a Preset:** Choose from built-in configurations (e.g., `Default`, `Characters`, `Quick Draft`) for common scenarios or select `Custom` to use your current settings.
+    * **Select a Preset:** Choose from 30+ built-in presets organized across 4 architecture groups (SDXL/FLUX.1, Qwen Image Edit, FLUX.2 Klein, TRELLIS.2 Pipeline), or select `Custom` to use your current settings.
+    * **Preset Diff Preview:** When hovering or selecting a preset, StableGen shows which parameters differ from your current settings and what they will change to.
     * **Apply Preset:** If you modify a stock preset, this button applies its original values.
-    * **Save Preset:** When your settings are `Custom`, this allows you to save your current configuration as a new named preset.
-    * **Delete Preset:** Removes a selected custom preset.
+    * **Save Preset / Delete Preset:** Save your current configuration as a named preset or remove a custom preset. ControlNet and LoRA include toggles let you choose what to save.
 
 ### Main Parameters
 
 These are your primary controls for defining the generation:
 
-* **Prompt:** The main text description of the texture you want to generate.
-* **Checkpoint:** Select the base SDXL checkpoint.
-* **Architecture:** Choose between `SDXL`, `Flux 1` (experimental), and `Qwen Image Edit` (experimental) model architectures.
+* **Prompt:** The main text description of the texture (or 3D asset) you want to generate.
+* **Checkpoint:** Select the base SDXL checkpoint (for SDXL/FLUX architectures).
+* **Architecture:** Choose between `SDXL`, `Flux 1`, `Qwen Image Edit`, and `FLUX.2 Klein` (experimental) model architectures. For 3D mesh generation, use the TRELLIS.2 pipeline presets.
 * **Generation Mode:** Defines the core strategy for texturing:
     * `Generate Separately`: Each viewpoint generates independently.
     * `Generate Sequentially`: Viewpoints generate one by one, using inpainting from previous views for consistency.
@@ -464,17 +489,21 @@ Click the arrow next to each title to expand and access detailed settings:
 * **Image Guidance (IPAdapter & ControlNet):** Configure IPAdapter for style transfer using external images and set up multiple ControlNet units (Depth, Canny, etc.) for precise structural control.
 * **Inpainting Options:** Fine-tune masking and blending for `Sequential` and `UV Inpaint` modes (e.g., differential diffusion, mask blurring/growing).
 * **Generation Mode Specifics:** Parameters unique to the selected Generation Mode, like refinement options for Grid mode or IPAdapter consistency settings for Sequential/Separate/Refine modes.
+* **PBR Decomposition:** Enable PBR material extraction after texturing. Toggle individual map types (albedo, roughness, metallic, normal, height, AO, emission), choose albedo source, and configure tiled super-resolution. Only shown when the required Marigold/StableDelight nodes are available on the server.
+* **TRELLIS.2 Settings:** Configure 3D mesh generation - resolution mode, decimation, remeshing, import scale, shading mode, texture mode (Native/SDXL/FLUX/Qwen/Klein), preview gallery seed count, and camera placement strategy for texturing.
 
 ### Integrated Workflow Tools (Bottom Section)
 
-A collection of utilities to further support your texturing workflow:
+A collection of utilities to further support your workflow:
 
-* **Switch Material:** For selected objects with multiple material slots, this tool allows you to quickly set a material at a specific index as the active one.
+* **Scene Queue:** Queue multiple assets for unattended batch processing. Add items with prompt and label, reorder, retry on failure. Supports both texturing and TRELLIS.2 pipelines with optional auto GIF export after each item.
+* **Switch Material:** For selected objects with multiple material slots, quickly set a material at a specific index as the active one.
 * **Add HDRI Light:** Prompts for an HDRI image file and sets it up as the world lighting, providing realistic illumination for your scene.
-* **Apply All Modifiers:** Iterates through all mesh objects in the scene, applies their modifier stacks, and converts geometry instances (like particle systems or collection instances) into real mesh data. This helps prepare models for texturing.
+* **Apply All Modifiers:** Iterates through all mesh objects in the scene, applies their modifier stacks, and converts geometry instances into real mesh data. Helps prepare models for texturing.
 * **Convert Curves to Mesh:** Converts any selected curve objects into mesh objects, which is necessary before StableGen can texture them.
-* **Export  GIF/MP4:** Creates an animated GIF and MP4 video of the currently active object, with the camera ing around it. Useful for quickly showcasing your textured model. You can set duration, frame rate, and resolution.
-* **Reproject Images:** This operator re-applies previously generated textures to your models using the latest `Viewpoint Blending Settings` (e.g., `Discard-Over Angle`, `Weight Exponent`). This allows you to tweak texture blending without full regeneration.
+* **Export Orbit GIF/MP4:** Creates an animated GIF and MP4 of the active object with the camera orbiting around it. Configurable duration, FPS, resolution, render engine (Workbench/Eevee/Cycles), and HDRI environment modes.
+* **Reproject Images:** Re-applies previously generated textures using the latest Viewpoint Blending Settings. Allows tweaking texture blending without full regeneration.
+* **Mirror Reproject:** Mirrors the last projection camera and image across an axis, then reprojects. Useful for symmetric objects.
 
 Experiment with these settings and tools to achieve a vast range of effects and control! Remember that the optimal parameters can vary greatly depending on the model, subject matter, and desired artistic style.
 
