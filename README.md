@@ -96,6 +96,8 @@ StableGen brings AI-powered 3D generation and texturing directly into Blender:
 
 See what StableGen can do!
 
+<sub>Tip: Refresh the page to synchronize all GIF animations.</sub>
+
 ---
 
 ### Showcase 1: Text-to-3D (SDXL)
