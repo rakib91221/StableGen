@@ -554,6 +554,7 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "repo_name": "ComfyUI-TRELLIS2",
         "license": "MIT (Note: textured pipeline uses NVIDIA non-commercial libs)", "packages": ["trellis2"],
         "pip_packages": ["comfy-env==0.2.0"],
+        "clean_envs": True,
         "run_install_script": True,
         "post_clone_patches": [
             {
@@ -1015,6 +1016,29 @@ def download_hf_model(item_details: Dict[str, Any], comfyui_path: Path):
         print(f"    huggingface-cli download {hf_repo} --local-dir {target_dir}")
 
 
+def _clean_stale_comfy_envs(repo_path: Path):
+    """Remove stale comfy-env virtualenvs (_env_*) from a node tree.
+
+    comfy-env creates isolated virtualenvs named _env_<hash> based on the
+    comfy-env.toml dependency manifest.  When the node is switched to a
+    different commit whose manifest lists different packages (e.g. timm
+    was added), the OLD _env_* dirs are never rebuilt and keep serving
+    outdated packages.  Deleting them forces comfy-env to recreate
+    correct environments on the next ComfyUI startup.
+    """
+    removed = 0
+    for env_dir in repo_path.rglob("_env_*"):
+        if env_dir.is_dir():
+            try:
+                shutil.rmtree(str(env_dir))
+                print(f"  Removed stale comfy-env '{env_dir.name}' (will be rebuilt on next launch).")
+                removed += 1
+            except Exception as e:
+                print(f"  WARNING: Could not remove '{env_dir}': {e}")
+    if removed:
+        print(f"  Cleaned {removed} stale environment(s). comfy-env will recreate them on next ComfyUI start.")
+
+
 def clone_git_repo(item_details: Dict[str, Any], comfyui_path: Path):
     git_url = item_details["git_url"]
     target_parent_dir = comfyui_path / item_details["target_dir_relative"]
@@ -1036,6 +1060,9 @@ def clone_git_repo(item_details: Dict[str, Any], comfyui_path: Path):
                     subprocess.run(['git', 'fetch', 'origin'], check=True, cwd=str(final_repo_path))
                     subprocess.run(['git', 'checkout', pinned_commit], check=True, cwd=str(final_repo_path))
                     print(f"  Successfully pinned to {pinned_commit[:12]}.")
+                    # Commit changed — old comfy-env virtualenvs may have stale deps
+                    if item_details.get("clean_envs"):
+                        _clean_stale_comfy_envs(final_repo_path)
                 else:
                     print(f"INFO: '{repo_name}' already at pinned commit {pinned_commit[:12]}. Skipping.")
             except Exception as e:
