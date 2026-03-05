@@ -173,8 +173,14 @@ class Regenerate(bpy.types.Operator):
                 # Native MATH LESS_THAN nodes (Blender 5.1+ native raycast path)
                 elif node.type == 'MATH' and node.operation == 'LESS_THAN' and node.label.startswith('AngleThreshold-'):
                     node.inputs[1].default_value = new_discard_angle
-        # Run the generation operator
-        bpy.ops.object.test_stable('INVOKE_DEFAULT')
+        # Run the generation operator (bypass modal poll guard since we are
+        # already registered as a modal operator ourselves)
+        from . import utils as _sg_utils
+        _sg_utils._sg_bypass_modal_check = True
+        try:
+            bpy.ops.object.test_stable('INVOKE_DEFAULT')
+        finally:
+            _sg_utils._sg_bypass_modal_check = False
 
         # Switch to modal and wait for completion
         print("Going modal")
@@ -270,8 +276,14 @@ class Reproject(bpy.types.Operator):
         # Set timer to 1 seconds to give some time for the generate to start
         context.window_manager.modal_handler_add(self)
         self._timer = context.window_manager.event_timer_add(1.0, window=context.window)
-        # Run the generation operator
-        bpy.ops.object.test_stable('INVOKE_DEFAULT')
+        # Run the generation operator (bypass modal poll guard since we are
+        # already registered as a modal operator ourselves)
+        from . import utils as _sg_utils
+        _sg_utils._sg_bypass_modal_check = True
+        try:
+            bpy.ops.object.test_stable('INVOKE_DEFAULT')
+        finally:
+            _sg_utils._sg_bypass_modal_check = False
 
         # Switch to modal and wait for completion
         print("Going modal")
@@ -4444,7 +4456,12 @@ class Trellis2Generate(bpy.types.Operator):
                 for obj in scene_cams:
                     obj.select_set(True)
 
-                bpy.ops.object.test_stable('INVOKE_DEFAULT')
+                from . import utils as _sg_utils
+                _sg_utils._sg_bypass_modal_check = True
+                try:
+                    bpy.ops.object.test_stable('INVOKE_DEFAULT')
+                finally:
+                    _sg_utils._sg_bypass_modal_check = False
                 print("[TRELLIS2] Texture generation started")
             except Exception as e:
                 print(f"[TRELLIS2] Warning: Texture generation failed to start: {e}")

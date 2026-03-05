@@ -472,6 +472,9 @@ class MirrorReproject(bpy.types.Operator):
             self._mirror_image_file(src_path, dst_path, flip_x=flip_x, flip_y=flip_y)
 
         # 4) Hand off to the existing Reproject operator once
+        #    Bypass modal poll guard since we are already a modal operator
+        from .. import utils as _sg_utils
+        _sg_utils._sg_bypass_modal_check = True
         try:
             bpy.ops.object.stablegen_reproject('INVOKE_DEFAULT')
         except Exception as exc:
@@ -480,6 +483,8 @@ class MirrorReproject(bpy.types.Operator):
                 f"Failed to start StableGen reprojection after mirroring: {exc}",
             )
             return {'CANCELLED'}
+        finally:
+            _sg_utils._sg_bypass_modal_check = False
 
         # 5) Schedule deletion of all temporary mirrored cameras
         for cam_name in created_cam_names:
