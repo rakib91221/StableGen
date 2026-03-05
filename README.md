@@ -104,12 +104,11 @@ See what StableGen can do!
 
 Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with SDXL-based texturing.
 
-| | | |
+| Dragon | Wizard | Hut |
 | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/sdxl_dragon.gif" alt="Fantasy dragon" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard character" width="200"> | <img src="docs/img/trellis2/sdxl_hut.gif" alt="Hut" width="200"> |
-| *Dragon* | *Wizard* | *Hut* |
+| **Telescope** | **Robot** | **Cyber Ninja** |
 | <img src="docs/img/trellis2/sdxl_telescope.gif" alt="Telescope" width="200"> | <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/sdxl_cyber_ninja.gif" alt="Cyber Ninja" width="200"> |
-| *Telescope* | *Robot* | *Cyber Ninja* |
 
 <details>
 <summary>Prompts used</summary>
@@ -128,12 +127,11 @@ Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with S
 
 Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing - well-suited for stylized objects and crisp details.
 
-| | | |
+| Barrel | Chest | Crate |
 | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/qwen_barrel.gif" alt="Barrel" width="200"> | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest" width="200"> | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate" width="200"> |
-| *Barrel* | *Chest* | *Crate* |
+| **Obelisk** | **Robot** | **Tree Stump** |
 | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk" width="200"> | <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump" width="200"> |
-| *Obelisk* | *Robot* | *Tree Stump* |
 
 <details>
 <summary>Prompts used</summary>
@@ -186,12 +184,11 @@ PBR material maps (roughness, metallic, normal) can be generated via Marigold de
 
 A selection of assets with PBR materials enabled, demonstrating realistic surface response under varying lighting.
 
-| | | |
+| Pot of Gold | Astrolabe | Tree Stump |
 | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> |
-| *Pot of Gold* | *Astrolabe* | *Tree Stump* |
+| **Rabbit** | **Crate** | **Obelisk (Qwen)** |
 | <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
-| *Rabbit* | *Crate* | *Obelisk (Qwen)* |
 
 <details>
 <summary>Prompts used</summary>
@@ -207,7 +204,7 @@ A selection of assets with PBR materials enabled, demonstrating realistic surfac
 
 ---
 
-### Showcase 5: Head Stylization
+### Showcase 5: Head Stylization (Texturing Only)
 
 Texturing an existing model using prompts and style guidance from an IPAdapter image reference.
 
@@ -235,7 +232,7 @@ Texturing an existing model using prompts and style guidance from an IPAdapter i
 </p>
 
 
-### Showcase 6: Car Texturing
+### Showcase 6: Car Texturing (Texturing Only)
 
 Texturing a car model using different prompts to achieve various visual styles.
 
@@ -256,7 +253,7 @@ Texturing a car model using different prompts to achieve various visual styles.
 </details>
 
 
-### Showcase 7: Scene Texturing
+### Showcase 7: Scene Texturing (Texturing Only)
 
 Texturing a complex scene consisting of many mesh objects.
 
