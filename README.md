@@ -44,7 +44,7 @@ StableGen brings AI-powered 3D generation and texturing directly into Blender:
     * **Flexible texture pipeline:** Use TRELLIS.2's native PBR textures, or automatically texture the generated mesh with SDXL, FLUX.1-dev, or Qwen Image Edit for higher-quality diffusion textures.
     * **Preview Gallery:** Generate multiple candidate images with different seeds and pick the best before committing to 3D generation.
     * **Smart mesh handling:** Auto-recovery from mesh corruption, configurable decimation/remeshing, import scaling, and studio lighting setup.
-    * VRAM-conscious: disk offloading, configurable attention backend, and low-VRAM modes.
+    * VRAM-conscious: disk offloading, configurable attention backend
     * Powered by [ComfyUI-TRELLIS2](https://github.com/PozzettiAndrea/ComfyUI-TRELLIS2) (installable via `installer.py`).
 * 🌍 **Scene-Wide Multi-Mesh Texturing:**
     * Don't just texture one mesh at a time! StableGen is designed to apply textures to **all mesh objects in your scene simultaneously** from your defined camera viewpoints. Alternatively, you can choose to texture only selected objects.
@@ -94,7 +94,8 @@ StableGen brings AI-powered 3D generation and texturing directly into Blender:
 
 ## 🚀 Showcase Gallery
 
-See what StableGen can do!
+<details open>
+<summary>See what StableGen can do!</summary>
 
 <sub>Tip: Refresh the page to synchronize all GIF animations.</sub>
 
@@ -269,6 +270,8 @@ Texturing a complex scene consisting of many mesh objects.
 1. **Subway Station:** *"subway station"*
 2. **Fantasy Palace:** *"an overgrown fantasy palace interior, gold elements"*
 3. **Cyberpunk:** *"subway station, cyberpunk style, neon lit"*
+
+</details>
 
 </details>
 
@@ -568,7 +571,7 @@ The TRELLIS.2 feature relies on several third-party components, each with its ow
 
 **All other TRELLIS.2 modes do not introduce licensing restrictions:**
 * **Shape-only mode ("None")** - does not use nvdiffrast/nvdiffrec. All other pipeline components are permissively licensed (MIT/Apache 2.0 + DINOv3 License).
-* **Projection-based texture modes ("SDXL", "Flux 1", "Qwen Image Edit")** - does not use nvdiffrast/nvdiffrec. The licensing terms of the selected diffusion model apply as usual (e.g., FLUX.1-dev has its own license terms separate from the TRELLIS.2 pipeline).
+* **Projection-based texture modes ("SDXL", "Qwen Image Edit", ...)** - do not use nvdiffrast/nvdiffrec. The licensing terms of the selected diffusion model apply as usual (e.g., FLUX.1-dev has its own license terms separate from the TRELLIS.2 pipeline).
 
 If you require commercial use of the "Native (TRELLIS.2)" texture mode, consider contacting NVIDIA regarding commercial licensing for nvdiffrast/nvdiffrec.
 
@@ -629,4 +632,4 @@ Ondřej Sakala
 * X/Twitter: `@sakalond`
 
 ---
-*Last Updated: February 14, 2026*
+*Last Updated: March 5, 2026*

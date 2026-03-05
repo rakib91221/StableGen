@@ -1,15 +1,15 @@
 schema_version = "1.0.0"
 id = "stablegen"
-version = "0.2.0"
+version = "0.3.0"
 name = "StableGen"
-tagline = "AI-Powered Texturing"
+tagline = "AI-Powered 3D Asset Generation & Texturing"
 maintainer = "Ondrej Sakala <sakalaondrej@gmail.com>"
 type = "add-on"
 blender_version_min = "4.2.0"
 
 website = "https://github.com/sakalond/StableGen"
 
-tags = ["Material", "Paint", "UV"]
+tags = ["Material", "Paint", "UV", "Mesh", "Import-Export"]
 
 license = ["SPDX:GPL-3.0-or-later"]
 
@@ -43,5 +43,5 @@ wheels = [
 ]
 
 [permissions]
-network = "Connects to a local ComfyUI server for AI texture generation"
-files = "Saves generated textures, intermediate files, exported GIFs"
+network = "Connects to a local ComfyUI server for AI generation"
+files = "Saves generated textures, 3D meshes, PBR maps, and exported GIFs"

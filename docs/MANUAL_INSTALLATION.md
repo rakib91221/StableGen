@@ -270,3 +270,124 @@ For users with NVIDIA GPUs on Linux or Windows (WSL2 recommended for best perfor
     * **License:** Apache 2.0
     * **Size:** ~12.7 GB
 
+**8. (Optional) TRELLIS.2 - Image/Text to 3D Setup**
+
+Generate 3D meshes from a single image or text prompt. Models auto-download on first use (~2 GB each for shape and texture stages).
+
+> **Note:** The TRELLIS.2 native textured output pipeline uses NVIDIA non-commercial libraries (nvdiffrast). Shape-only and SDXL/Qwen texture generation does not have this restriction.
+
+* **a) Install the ComfyUI-TRELLIS2 Custom Node**
+    1.  Navigate to your ComfyUI custom nodes directory:
+        ```bash
+        cd <YourComfyUIDirectory>/custom_nodes/
+        ```
+    2.  Clone the repository at the tested commit:
+        ```bash
+        git clone https://github.com/PozzettiAndrea/ComfyUI-TRELLIS2.git
+        cd ComfyUI-TRELLIS2
+        git checkout 6b0b2148f45bbafa0b86bfd25c63602b63a7aae0
+        ```
+    3.  Install its dependencies (from inside the cloned folder):
+        ```bash
+        pip install -r requirements.txt
+        ```
+    4.  Install the comfy-env dependency:
+        ```bash
+        pip install comfy-env==0.2.0
+        ```
+    5.  **Restart ComfyUI.**
+    * **License:** MIT (node code)
+    * **Size:** ~0.1 GB (models auto-download on first use)
+
+* **b) Important: Apply Patches (Recommended)**
+
+    The `installer.py` script automatically applies several critical patches to ComfyUI-TRELLIS2 that fix major VRAM leaks (up to ~16 GB savings) and improve stability. If you install manually, it is **strongly recommended** to run the installer for this step, or apply the patches yourself. Key patches include:
+    * Wrapping DinoV3 in `torch.no_grad()` to prevent 5-9 GB GPU memory leak.
+    * Unregistering models from comfy-env's registry to prevent ~7 GB VRAM leak.
+    * Cleaning up temporary IPC files between generations.
+    * Python 3.10 compatibility fix for `Path.is_junction`.
+
+**9. (Optional) PBR Decomposition - Marigold IID Setup**
+
+Decompose color textures into PBR material maps (roughness, metallic, normal, height, albedo). Models auto-download on first use.
+
+* **a) Install the ComfyUI-Marigold Custom Node**
+    1.  Navigate to your ComfyUI custom nodes directory:
+        ```bash
+        cd <YourComfyUIDirectory>/custom_nodes/
+        ```
+    2.  Clone the repository:
+        ```bash
+        git clone https://github.com/kijai/ComfyUI-Marigold.git
+        ```
+    3.  Install its dependencies:
+        ```bash
+        cd ComfyUI-Marigold
+        pip install -r requirements.txt
+        pip install "diffusers>=0.28"
+        ```
+    4.  **(Windows only)** Install triton:
+        ```bash
+        pip install triton-windows
+        ```
+    5.  **Restart ComfyUI.**
+    * **License:** GPL-3.0
+    * **Size:** ~0.01 GB (models auto-download on first use, ~2 GB each)
+
+**10. (Optional) PBR Decomposition - StableDelight Setup**
+
+Adds a specular-free albedo extraction option for PBR decomposition. **Requires Marigold IID (step 9) to also be installed.**
+
+* **a) Install the ComfyUI_StableDelight_ll Custom Node**
+    1.  Navigate to your ComfyUI custom nodes directory:
+        ```bash
+        cd <YourComfyUIDirectory>/custom_nodes/
+        ```
+    2.  Clone the repository:
+        ```bash
+        git clone https://github.com/lldacing/ComfyUI_StableDelight_ll.git
+        ```
+    3.  **Restart ComfyUI.**
+    * **License:** Apache 2.0
+
+* **b) Download the StableDelight Model**
+    * **Directory:** `<YourComfyUIDirectory>/models/diffusers/Stable-X--yoso-delight-v0-4-base`
+    * **Source:** [https://huggingface.co/Stable-X/yoso-delight-v0-4-base](https://huggingface.co/Stable-X/yoso-delight-v0-4-base)
+    * You can download the full repo or use:
+        ```bash
+        pip install huggingface_hub
+        python -c "from huggingface_hub import snapshot_download; snapshot_download('Stable-X/yoso-delight-v0-4-base', local_dir='<YourComfyUIDirectory>/models/diffusers/Stable-X--yoso-delight-v0-4-base')"
+        ```
+    * **License:** Apache 2.0
+    * **Size:** ~3.3 GB
+
+**11. (Optional) FLUX.2 Klein Setup (Experimental)**
+
+> **⚠️ Experimental:** Klein is not yet fully stable - there are known issues with geometry guidance. Expect improvements in future updates.
+
+FLUX.2 Klein is a multi-reference image editing architecture from Black Forest Labs. No custom nodes required - all nodes are built into ComfyUI.
+
+* **a) Download the Klein 4B Diffusion Model (FP8)**
+    * **Directory:** `<YourComfyUIDirectory>/models/diffusion_models/`
+    * **Filename:** `flux-2-klein-base-4b-fp8.safetensors`
+    * **Download URL:** [https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8/resolve/main/flux-2-klein-base-4b-fp8.safetensors?download=true](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8/resolve/main/flux-2-klein-base-4b-fp8.safetensors?download=true)
+    * **License:** Apache 2.0
+    * **Size:** ~4.1 GB
+
+* **b) Download the Qwen 3 4B Text Encoder (bf16)**
+    * **Directory:** `<YourComfyUIDirectory>/models/text_encoders/`
+    * **Filename:** `qwen_3_4b.safetensors`
+    * **Download URL:** [https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors?download=true](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors?download=true)
+    * **License:** Apache 2.0
+    * **Size:** ~8.1 GB
+
+* **c) Download the FLUX.2 VAE**
+    * **Directory:** `<YourComfyUIDirectory>/models/vae/`
+    * **Filename:** `flux2-vae.safetensors`
+    * **Download URL:** [https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors?download=true](https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors?download=true)
+    * **License:** Apache 2.0
+    * **Size:** ~321 MB
+
+* **Total FLUX.2 Klein download size:** ~12.4 GB
+* **Estimated VRAM requirement:** ~13 GB
+

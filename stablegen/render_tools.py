@@ -5119,7 +5119,7 @@ class BakeTextures(bpy.types.Operator):
             ('lightmap', 'Lightmap Pack', 'Use Lightmap Pack with default parameters'),
             ('pack', 'Pack Islands', 'Use Pack Islands with default parameters')
         ],
-        default='none'
+        default='smart'
     ) # type: ignore
 
     add_material: bpy.props.BoolProperty(
