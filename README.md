@@ -106,8 +106,8 @@ Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with S
 | :------: | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/sdxl_dragon.gif" alt="Fantasy dragon" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard character" width="200"> | <img src="docs/img/trellis2/sdxl_hut.gif" alt="Hut" width="200"> | <img src="docs/img/trellis2/sdxl_telescope.gif" alt="Telescope" width="200"> |
 | *Dragon* | *Wizard* | *Hut* | *Telescope* |
-| <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | | | |
-| *Robot* | | | |
+| <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/sdxl_cyber_ninja.gif" alt="Cyber Ninja" width="200"> | | |
+| *Robot* | *Cyber Ninja* | | |
 
 <details>
 <summary>Prompts used</summary>
@@ -117,6 +117,7 @@ Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with S
 3. **Hut:** *"TODO"*
 4. **Telescope:** *"TODO"*
 5. **Robot:** *"TODO"*
+6. **Cyber Ninja:** *"TODO"*
 
 </details>
 
@@ -129,8 +130,8 @@ Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing — well-suited for styl
 | :------: | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/qwen_barrel.gif" alt="Barrel" width="200"> | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest" width="200"> | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk" width="200"> |
 | *Barrel* | *Chest* | *Crate* | *Obelisk* |
-| <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | | | |
-| *Robot* | | | |
+| <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump" width="200"> | | |
+| *Robot* | *Tree Stump* | | |
 
 <details>
 <summary>Prompts used</summary>
@@ -140,6 +141,7 @@ Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing — well-suited for styl
 3. **Crate:** *"TODO"*
 4. **Obelisk:** *"TODO"*
 5. **Robot:** *"TODO"*
+6. **Tree Stump:** *"TODO"*
 
 </details>
 
@@ -154,6 +156,12 @@ PBR material maps (roughness, metallic, normal) can be generated via Marigold de
 | <small>Qwen — House</small> | <small>Qwen — House (PBR)</small> | <small>SDXL — Wizard</small> | <small>SDXL — Wizard (PBR)</small> |
 | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
 | <small>Qwen — Chest</small> | <small>Qwen — Chest (PBR)</small> | <small>Qwen — Obelisk</small> | <small>Qwen — Obelisk (PBR)</small> |
+| <img src="docs/img/trellis2/sdxl_lunar_habitat.gif" alt="Lunar Habitat (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_lunar_habitat_pbr.gif" alt="Lunar Habitat (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger.gif" alt="Scavenger (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger_pbr.gif" alt="Scavenger (PBR)" width="200"> |
+| <small>SDXL — Lunar Habitat</small> | <small>SDXL — Lunar Habitat (PBR)</small> | <small>SDXL — Scavenger</small> | <small>SDXL — Scavenger (PBR)</small> |
+| <img src="docs/img/trellis2/sdxl_shaman.gif" alt="Shaman (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_shaman_pbr.gif" alt="Shaman (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman.gif" alt="Cyberpunk Woman (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman_pbr.gif" alt="Cyberpunk Woman (PBR)" width="200"> |
+| <small>SDXL — Shaman</small> | <small>SDXL — Shaman (PBR)</small> | <small>Qwen — Cyberpunk Woman</small> | <small>Qwen — Cyberpunk Woman (PBR)</small> |
+| <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree Stump (PBR)" width="200"> |
+| <small>Qwen — Crate</small> | <small>Qwen — Crate (PBR)</small> | <small>Qwen — Tree Stump</small> | <small>Qwen — Tree Stump (PBR)</small> |
 
 
 ### Showcase 4: PBR Gallery
@@ -162,22 +170,20 @@ A selection of assets with PBR materials enabled, demonstrating realistic surfac
 
 | | | | |
 | :------: | :------: | :------: | :------: |
-| <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_vending_machine_pbr.gif" alt="Vending machine (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> |
-| *Pot of Gold* | *Vending Machine* | *Astrolabe* | *Tree Stump* |
-| <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_obelisk_pbr.gif" alt="Obelisk SDXL (PBR)" width="200"> |
-| *Rabbit* | *Crate* | *Obelisk (Qwen)* | *Obelisk (SDXL)* |
+| <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> |
+| *Pot of Gold* | *Astrolabe* | *Tree Stump* | *Rabbit* |
+| <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> | | |
+| *Crate* | *Obelisk (Qwen)* | | |
 
 <details>
 <summary>Prompts used</summary>
 
 1. **Pot of Gold:** *"TODO"*
-2. **Vending Machine:** *"TODO"*
-3. **Astrolabe:** *"TODO"*
-4. **Tree Stump:** *"TODO"*
-5. **Rabbit:** *"TODO"*
-6. **Crate:** *"TODO"*
-7. **Obelisk (Qwen):** *"TODO"*
-8. **Obelisk (SDXL):** *"TODO"*
+2. **Astrolabe:** *"TODO"*
+3. **Tree Stump:** *"TODO"*
+4. **Rabbit:** *"TODO"*
+5. **Crate:** *"TODO"*
+6. **Obelisk (Qwen):** *"TODO"*
 
 </details>
 
