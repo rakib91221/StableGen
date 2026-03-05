@@ -624,6 +624,13 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
                 "patch": _PATCH_TRELLIS_TEMP_CLEANUP_REPLACE,
                 "mode": "replace",
             },
+            {
+                "file": "nodes/rembg/BiRefNet.py",
+                "marker": "StableGen patch: BiRefNet fp32",
+                "anchor": "self.model.eval()",
+                "patch": "self.model.eval()\n        self.model.float()  # StableGen patch: BiRefNet fp32 — avoid fp16/fp32 dtype mismatch",
+                "mode": "replace",
+            },
         ]
     },
     # --- FLUX.2 Klein 4B ---
