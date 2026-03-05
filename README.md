@@ -102,12 +102,12 @@ See what StableGen can do!
 
 Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with SDXL-based texturing.
 
-| | | | |
-| :------: | :------: | :------: | :------: |
-| <img src="docs/img/trellis2/sdxl_dragon.gif" alt="Fantasy dragon" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard character" width="200"> | <img src="docs/img/trellis2/sdxl_hut.gif" alt="Hut" width="200"> | <img src="docs/img/trellis2/sdxl_telescope.gif" alt="Telescope" width="200"> |
-| *Dragon* | *Wizard* | *Hut* | *Telescope* |
-| <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/sdxl_cyber_ninja.gif" alt="Cyber Ninja" width="200"> | | |
-| *Robot* | *Cyber Ninja* | | |
+| | | |
+| :------: | :------: | :------: |
+| <img src="docs/img/trellis2/sdxl_dragon.gif" alt="Fantasy dragon" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard character" width="200"> | <img src="docs/img/trellis2/sdxl_hut.gif" alt="Hut" width="200"> |
+| *Dragon* | *Wizard* | *Hut* |
+| <img src="docs/img/trellis2/sdxl_telescope.gif" alt="Telescope" width="200"> | <img src="docs/img/trellis2/sdxl_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/sdxl_cyber_ninja.gif" alt="Cyber Ninja" width="200"> |
+| *Telescope* | *Robot* | *Cyber Ninja* |
 
 <details>
 <summary>Prompts used</summary>
@@ -126,12 +126,12 @@ Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with S
 
 Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing - well-suited for stylized objects and crisp details.
 
-| | | | |
-| :------: | :------: | :------: | :------: |
-| <img src="docs/img/trellis2/qwen_barrel.gif" alt="Barrel" width="200"> | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest" width="200"> | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk" width="200"> |
-| *Barrel* | *Chest* | *Crate* | *Obelisk* |
-| <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump" width="200"> | | |
-| *Robot* | *Tree Stump* | | |
+| | | |
+| :------: | :------: | :------: |
+| <img src="docs/img/trellis2/qwen_barrel.gif" alt="Barrel" width="200"> | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest" width="200"> | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate" width="200"> |
+| *Barrel* | *Chest* | *Crate* |
+| <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk" width="200"> | <img src="docs/img/trellis2/qwen_robot.gif" alt="Robot" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump" width="200"> |
+| *Obelisk* | *Robot* | *Tree Stump* |
 
 <details>
 <summary>Prompts used</summary>
@@ -152,15 +152,15 @@ PBR material maps (roughness, metallic, normal) can be generated via Marigold de
 
 | Non-PBR | PBR | Non-PBR | PBR |
 | :------: | :------: | :------: | :------: |
-| <img src="docs/img/trellis2/qwen_house.gif" alt="House (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_house_pbr.gif" alt="House (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard_pbr.gif" alt="Wizard (PBR)" width="200"> |
+| <img src="docs/img/trellis2/qwen_house.gif" alt="House (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_house_pbr.gif" alt="House (PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_wizard_pbr.gif" alt="Wizard (PBR)" width="170"> |
 | <small>House</small> | <small>House (PBR)</small> | <small>Wizard</small> | <small>Wizard (PBR)</small> |
-| <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
+| <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="170"> |
 | <small>Chest</small> | <small>Chest (PBR)</small> | <small>Obelisk</small> | <small>Obelisk (PBR)</small> |
-| <img src="docs/img/trellis2/sdxl_lunar_habitat.gif" alt="Lunar Habitat (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_lunar_habitat_pbr.gif" alt="Lunar Habitat (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger.gif" alt="Scavenger (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger_pbr.gif" alt="Scavenger (PBR)" width="200"> |
+| <img src="docs/img/trellis2/sdxl_lunar_habitat.gif" alt="Lunar Habitat (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_lunar_habitat_pbr.gif" alt="Lunar Habitat (PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_scavenger.gif" alt="Scavenger (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_scavenger_pbr.gif" alt="Scavenger (PBR)" width="170"> |
 | <small>Lunar Habitat</small> | <small>Lunar Habitat (PBR)</small> | <small>Scavenger</small> | <small>Scavenger (PBR)</small> |
-| <img src="docs/img/trellis2/sdxl_shaman.gif" alt="Shaman (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_shaman_pbr.gif" alt="Shaman (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman.gif" alt="Cyberpunk Woman (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman_pbr.gif" alt="Cyberpunk Woman (PBR)" width="200"> |
+| <img src="docs/img/trellis2/sdxl_shaman.gif" alt="Shaman (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_shaman_pbr.gif" alt="Shaman (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman.gif" alt="Cyberpunk Woman (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman_pbr.gif" alt="Cyberpunk Woman (PBR)" width="170"> |
 | <small>Shaman</small> | <small>Shaman (PBR)</small> | <small>Cyberpunk Woman</small> | <small>Cyberpunk Woman (PBR)</small> |
-| <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree Stump (PBR)" width="200"> |
+| <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree Stump (PBR)" width="170"> |
 | <small>Crate</small> | <small>Crate (PBR)</small> | <small>Tree Stump</small> | <small>Tree Stump (PBR)</small> |
 
 <details>
@@ -184,12 +184,12 @@ PBR material maps (roughness, metallic, normal) can be generated via Marigold de
 
 A selection of assets with PBR materials enabled, demonstrating realistic surface response under varying lighting.
 
-| | | | |
-| :------: | :------: | :------: | :------: |
-| <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> |
-| *Pot of Gold* | *Astrolabe* | *Tree Stump* | *Rabbit* |
-| <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> | | |
-| *Crate* | *Obelisk (Qwen)* | | |
+| | | |
+| :------: | :------: | :------: |
+| <img src="docs/img/trellis2/sdxl_pot_of_gold_pbr.gif" alt="Pot of gold (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_astrolabe_pbr.gif" alt="Astrolabe (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree stump (PBR)" width="200"> |
+| *Pot of Gold* | *Astrolabe* | *Tree Stump* |
+| <img src="docs/img/trellis2/qwen_rabbit_pbr.gif" alt="Rabbit (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
+| *Rabbit* | *Crate* | *Obelisk (Qwen)* |
 
 <details>
 <summary>Prompts used</summary>
@@ -215,8 +215,17 @@ Texturing an existing model using prompts and style guidance from an IPAdapter i
 
 | Untextured Model  | Generated | Generated  | Generated (with a reference image) |
 | :------: | :---------: | :----------: | :-----------------: |
-| <img src="docs/img/head_blank.gif" alt="Untextured Anime Head" width="200"> | <img src="docs/img/head_red.gif" alt="Anime head with red hair" width="200">  | <img src="docs/img/head_cyberpunk.gif" alt="Anime head with Cyberpunk style" width="200">   |  <img src="docs/img/head_starry.gif" alt="Anime head with Starry Night style" width="200">   | 
-| *Base Untextured Model* | <small>Prompt: "anime girl head, red hair"</small>    |   <small>Prompt: "girl head, brown hair, cyberpunk style, realistic"</small>  |   <small>Prompt: "anime girl head, artistic style"<br><em>(Style guided by reference image shown below)</em></small>      |
+| <img src="docs/img/head_blank.gif" alt="Untextured Anime Head" width="170"> | <img src="docs/img/head_red.gif" alt="Anime head with red hair" width="170">  | <img src="docs/img/head_cyberpunk.gif" alt="Anime head with Cyberpunk style" width="170">   |  <img src="docs/img/head_starry.gif" alt="Anime head with Starry Night style" width="170">   | 
+| *Base Untextured Model* | *Red Hair* | *Cyberpunk* | *Artistic Style* |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Red Hair:** *"anime girl head, red hair"*
+2. **Cyberpunk:** *"girl head, brown hair, cyberpunk style, realistic"*
+3. **Artistic Style:** *"anime girl head, artistic style"* (style guided by IPAdapter reference image shown below)
+
+</details>
 <p align="left">
   <img src="docs/img/starry_night_small.jpg" alt="The Starry Night - IPAdapter Reference" width="250">
   <br>
@@ -232,8 +241,17 @@ Texturing a car model using different prompts to achieve various visual styles.
 
 | Untextured Model  | Generated | Generated | Generated |
 | :------: | :---------: | :----------: | :-----------------: |
-| <img src="docs/img/car_blank.gif" alt="Untextured Car" width="200"> | <img src="docs/img/car_green.gif" alt="Green car" width="200">  | <img src="docs/img/car_steampunk.gif" alt="Steampunk style car" width="200">   |  <img src="docs/img/car_black.gif" alt="Stealth black car" width="200">   | 
-| *Base Untextured Model* | <small>Prompt: "green car"</small>    |   <small>Prompt: "steampunk style car"</small>  |   <small>Prompt: "stealth black car"</small>      |
+| <img src="docs/img/car_blank.gif" alt="Untextured Car" width="170"> | <img src="docs/img/car_green.gif" alt="Green car" width="170">  | <img src="docs/img/car_steampunk.gif" alt="Steampunk style car" width="170">   |  <img src="docs/img/car_black.gif" alt="Stealth black car" width="170">   | 
+| *Base Untextured Model* | *Green* | *Steampunk* | *Stealth Black* |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Green:** *"green car"*
+2. **Steampunk:** *"steampunk style car"*
+3. **Stealth Black:** *"stealth black car"*
+
+</details>
 
 
 ### Showcase 7: Scene Texturing
@@ -244,8 +262,17 @@ Texturing a complex scene consisting of many mesh objects.
 
 | Untextured Scene  | Generated | Generated | Generated |
 | :------: | :---------: | :----------: | :-----------------: |
-| <img src="docs/img/subway_blank.gif" alt="Untextured Subway Scene" width="200"> | <img src="docs/img/subway_default.gif" alt="Subway station" width="200">  | <img src="docs/img/subway_palace.gif" alt="Overgrown fantasy palace interior" width="200">   |  <img src="docs/img/subway_cyberpunk.gif" alt="Cyberpunk subway station" width="200">   | 
-| *Base Untextured Scene* | <small>Prompt: "subway station"</small>    |   <small>Prompt: "an overgrown fantasy palace interior, gold elements"</small>  |   <small>Prompt: "subway station, cyberpunk style, neon lit"</small>      |
+| <img src="docs/img/subway_blank.gif" alt="Untextured Subway Scene" width="170"> | <img src="docs/img/subway_default.gif" alt="Subway station" width="170">  | <img src="docs/img/subway_palace.gif" alt="Overgrown fantasy palace interior" width="170">   |  <img src="docs/img/subway_cyberpunk.gif" alt="Cyberpunk subway station" width="170">   | 
+| *Base Untextured Scene* | *Subway Station* | *Fantasy Palace* | *Cyberpunk* |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **Subway Station:** *"subway station"*
+2. **Fantasy Palace:** *"an overgrown fantasy palace interior, gold elements"*
+3. **Cyberpunk:** *"subway station, cyberpunk style, neon lit"*
+
+</details>
 
 ---
 
