@@ -4351,12 +4351,19 @@ class Trellis2Generate(bpy.types.Operator):
                     if _pm == 'fan_from_camera':
                         _cam_kwargs['fan_angle'] = getattr(context.scene, 'trellis2_fan_angle', 90.0)
 
-                    # Use temp_override so add_cameras gets proper region_data
-                    if _v3d_area and _v3d_region:
-                        with bpy.context.temp_override(area=_v3d_area, region=_v3d_region):
+                    # Use temp_override so add_cameras gets proper region_data.
+                    # Temporarily bypass the sg_modal_active() poll guard so
+                    # add_cameras can run while this TRELLIS.2 modal is active.
+                    from . import utils as _sg_utils
+                    _sg_utils._sg_bypass_modal_check = True
+                    try:
+                        if _v3d_area and _v3d_region:
+                            with bpy.context.temp_override(area=_v3d_area, region=_v3d_region):
+                                bpy.ops.object.add_cameras(**_cam_kwargs)
+                        else:
                             bpy.ops.object.add_cameras(**_cam_kwargs)
-                    else:
-                        bpy.ops.object.add_cameras(**_cam_kwargs)
+                    finally:
+                        _sg_utils._sg_bypass_modal_check = False
 
                 except Exception as cam_err:
                     print(f"[TRELLIS2] Warning: Camera placement failed: {cam_err}")

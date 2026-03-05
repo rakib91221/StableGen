@@ -15,9 +15,15 @@ _SG_BLOCKED_MODALS = frozenset({
     'OBJECT_OT_export_orbit_gif',
 })
 
+# Temporary bypass flag – set True to allow internal operator calls
+# (e.g. TRELLIS.2 modal calling add_cameras) to skip the poll guard.
+_sg_bypass_modal_check = False
+
 
 def sg_modal_active(context):
     """Return True if any StableGen heavy modal operator is currently running."""
+    if _sg_bypass_modal_check:
+        return False
     for window in context.window_manager.windows:
         for op in window.modal_operators:
             if op.bl_idname in _SG_BLOCKED_MODALS:

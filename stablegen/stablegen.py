@@ -973,11 +973,6 @@ class StableGenPanel(bpy.types.Panel):
                 split.label(text="Texture Mode:")
                 split.prop(scene, "trellis2_texture_mode", text="")
 
-                # Mesh shading mode
-                split = params_container.split(factor=0.5)
-                split.label(text="Shading:")
-                split.prop(scene, "trellis2_shade_mode", text="")
-
                 # Prompt + native/none: show initial-image architecture & checkpoint
                 _prompt_needs_initial = (
                     scene.trellis2_generate_from == 'prompt'
@@ -1133,6 +1128,10 @@ class StableGenPanel(bpy.types.Panel):
                     split = content_box.split(factor=0.5)
                     split.label(text="BG Removal:")
                     split.prop(scene, "trellis2_bg_removal", text="")
+
+                    split = content_box.split(factor=0.5)
+                    split.label(text="Shading:")
+                    split.prop(scene, "trellis2_shade_mode", text="")
                     content_box.separator()
 
             # --- TRELLIS.2: Native Texture Settings ---
