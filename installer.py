@@ -792,6 +792,50 @@ def install_pip_packages(pip_packages: List[str], comfyui_path: Path):
             break
 
 
+def _patch_comfy_env_platform_tag(comfyui_path: Path):
+    """Fix comfy-env 0.2.0 Linux platform tag matching bug.
+
+    comfy-env's _platform_tag() returns "linux_x86_64" but pre-built CUDA
+    wheels use "manylinux_2_34_x86_64" filenames.  The substring check
+    ``"linux_x86_64" in "manylinux_2_34_x86_64"`` fails because the glibc
+    version sits between "linux_" and "x86_64".
+
+    Fix: return "linux" instead, which IS a substring of "manylinux_*".
+    """
+    python_exe = find_comfyui_python(comfyui_path)
+    result = subprocess.run(
+        [python_exe, "-c",
+         "import comfy_env.packages.cuda_wheels as m; print(m.__file__)"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("  WARNING: Could not locate comfy_env cuda_wheels.py, "
+              "skipping platform tag patch")
+        return
+
+    cuda_wheels_path = Path(result.stdout.strip())
+    if not cuda_wheels_path.is_file():
+        print(f"  WARNING: {cuda_wheels_path} not found, "
+              "skipping platform tag patch")
+        return
+
+    content = cuda_wheels_path.read_text(encoding="utf-8")
+    marker = "# StableGen patch: linux platform tag"
+    if marker in content:
+        print("  comfy-env platform tag patch already applied")
+        return
+
+    old = 'return "linux_x86_64"'
+    if old not in content:
+        print("  WARNING: Could not find platform tag to patch in "
+              "cuda_wheels.py (already fixed upstream?)")
+        return
+
+    content = content.replace(old, f'return "linux"  {marker}')
+    cuda_wheels_path.write_text(content, encoding="utf-8")
+    print("  Patched comfy-env _platform_tag() for Linux manylinux matching")
+
+
 def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
     """Run a custom node's install.py to resolve all its dependencies.
 
@@ -1234,6 +1278,9 @@ def main():
                 # Install pip dependencies required by this custom node
                 if item_details.get("pip_packages"):
                     install_pip_packages(item_details["pip_packages"], comfyui_base_path)
+                    # Fix comfy-env 0.2.0 Linux manylinux platform tag bug
+                    if any("comfy-env" in p for p in item_details["pip_packages"]):
+                        _patch_comfy_env_platform_tag(comfyui_base_path)
                 # Apply compatibility patches (e.g. Python 3.10 polyfills)
                 if item_details.get("post_clone_patches"):
                     apply_post_clone_patches(item_details, comfyui_base_path)
