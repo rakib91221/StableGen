@@ -150,18 +150,17 @@ Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing - well-suited for styliz
 
 PBR material maps (roughness, metallic, normal) can be generated via Marigold decomposition. Each pair shows the same object without and with PBR materials.
 
-| Non-PBR | PBR | Non-PBR | PBR |
+| House | House (PBR) | Wizard | Wizard (PBR) |
 | :------: | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/qwen_house.gif" alt="House (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_house_pbr.gif" alt="House (PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_wizard_pbr.gif" alt="Wizard (PBR)" width="170"> |
-| <small>House</small> | <small>House (PBR)</small> | <small>Wizard</small> | <small>Wizard (PBR)</small> |
+| **Chest** | **Chest (PBR)** | **Obelisk** | **Obelisk (PBR)** |
 | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="170"> |
-| <small>Chest</small> | <small>Chest (PBR)</small> | <small>Obelisk</small> | <small>Obelisk (PBR)</small> |
+| **Lunar Habitat** | **Lunar Habitat (PBR)** | **Scavenger** | **Scavenger (PBR)** |
 | <img src="docs/img/trellis2/sdxl_lunar_habitat.gif" alt="Lunar Habitat (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_lunar_habitat_pbr.gif" alt="Lunar Habitat (PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_scavenger.gif" alt="Scavenger (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_scavenger_pbr.gif" alt="Scavenger (PBR)" width="170"> |
-| <small>Lunar Habitat</small> | <small>Lunar Habitat (PBR)</small> | <small>Scavenger</small> | <small>Scavenger (PBR)</small> |
+| **Shaman** | **Shaman (PBR)** | **Cyberpunk Woman** | **Cyberpunk Woman (PBR)** |
 | <img src="docs/img/trellis2/sdxl_shaman.gif" alt="Shaman (non-PBR)" width="170"> | <img src="docs/img/trellis2/sdxl_shaman_pbr.gif" alt="Shaman (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman.gif" alt="Cyberpunk Woman (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman_pbr.gif" alt="Cyberpunk Woman (PBR)" width="170"> |
-| <small>Shaman</small> | <small>Shaman (PBR)</small> | <small>Cyberpunk Woman</small> | <small>Cyberpunk Woman (PBR)</small> |
+| **Crate** | **Crate (PBR)** | **Tree Stump** | **Tree Stump (PBR)** |
 | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="170"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump (non-PBR)" width="170"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree Stump (PBR)" width="170"> |
-| <small>Crate</small> | <small>Crate (PBR)</small> | <small>Tree Stump</small> | <small>Tree Stump (PBR)</small> |
 
 <details>
 <summary>Prompts used</summary>
