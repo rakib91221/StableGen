@@ -494,7 +494,8 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "git_url": "https://github.com/nunchaku-tech/ComfyUI-nunchaku.git",
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-nunchaku",
-        "license": "Apache 2.0", "packages": ["qwen_nunchaku"]
+        "license": "Apache 2.0", "packages": ["qwen_nunchaku"],
+        "pip_packages": ["nunchaku"]
     },
     "cn_qwen_lora_loader": {
         "id": "cn_qwen_lora_loader", "type": "node", "name": "ComfyUI Qwen Image LoRA Loader",
@@ -516,7 +517,7 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-Marigold",
         "license": "GPL-3.0", "packages": ["pbr_marigold"],
-        "pip_packages": ["diffusers>=0.28"] + (["triton-windows"] if sys.platform == "win32" else []),
+        "pip_packages": ["diffusers>=0.28", "matplotlib"] + (["triton-windows"] if sys.platform == "win32" else []),
         "run_install_script": True,
     },
     # --- StableDelight (specular-free albedo) ---
