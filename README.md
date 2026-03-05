@@ -112,19 +112,19 @@ Assets generated entirely from a text prompt using the TRELLIS.2 pipeline with S
 <details>
 <summary>Prompts used</summary>
 
-1. **Dragon:** *"TODO"*
-2. **Wizard:** *"TODO"*
-3. **Hut:** *"TODO"*
-4. **Telescope:** *"TODO"*
-5. **Robot:** *"TODO"*
-6. **Cyber Ninja:** *"TODO"*
+1. **Dragon:** *"fantasy dragon"*
+2. **Wizard:** *"wizard character, intricate embroidered purple and gold robes, pointed hat, wooden staff with glowing crystal, leather belt with pouches, fantasy character concept art, 4k"*
+3. **Hut:** *"house, small house, cozy, wooden, hut"*
+4. **Telescope:** *"antique brass telescope, tarnished patina with bright spots from handling, leather grip wrap, extended sections, mahogany tripod, product photography, 4k"*
+5. **Robot:** *"giant robot, mecha, cyberpunk style, sci-fi, white body, intricate details, neon accents"*
+6. **Cyber Ninja:** *"full body character, neutral pose, cyber-ninja, futuristic assassin, matte black carbon fiber stealth suit, hexagonal weave pattern, faceless helmet, glowing red neon visor slit, metallic silver shoulder armor, cyberpunk aesthetic, high contrast materials, unreal engine 5 render"*
 
 </details>
 
 
 ### Showcase 2: Text-to-3D (Qwen)
 
-Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing — well-suited for stylized objects and crisp details.
+Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing - well-suited for stylized objects and crisp details.
 
 | | | | |
 | :------: | :------: | :------: | :------: |
@@ -136,12 +136,12 @@ Text-to-3D via TRELLIS.2 with Qwen Image Edit texturing — well-suited for styl
 <details>
 <summary>Prompts used</summary>
 
-1. **Barrel:** *"TODO"*
-2. **Chest:** *"TODO"*
-3. **Crate:** *"TODO"*
-4. **Obelisk:** *"TODO"*
-5. **Robot:** *"TODO"*
-6. **Tree Stump:** *"TODO"*
+1. **Barrel:** *"A chunky, stylized wooden barrel bound by thick, oversized iron hoops. The wood has deep, exaggerated hand-carved grooves"*
+2. **Chest:** *"A highly detailed wooden treasure chest bound in heavy, dark iron. The chest is slightly open, revealing a pile of glowing gold coins inside. The wood is old and splintered, and the iron has patches of orange rust."*
+3. **Crate:** *"A yellow industrial hazmat shipping crate. On the side, there is a large, highly legible warning label that says \"DANGER: BIOHAZARD\" in bold black letters. The crate has a digital keypad on the front and two red oxygen tanks strapped to the left side."*
+4. **Obelisk:** *"An ancient, monolithic stone obelisk covered in glowing green runic carvings. The grey stone is deeply cracked from age and covered in patches of thick, fuzzy green moss."*
+5. **Robot:** *"giant robot, mecha, cyberpunk style, sci-fi, white body, intricate details, neon accents"*
+6. **Tree Stump:** *"A mystical, ancient gnarled tree stump with exposed, twisting roots. Growing out of the top is a cluster of translucent, glowing bioluminescent blue mushrooms and delicate, thin fern leaves. Fantasy RPG asset, hand-painted texture style mixed with photorealism, highly detailed."*
 
 </details>
 
@@ -153,15 +153,31 @@ PBR material maps (roughness, metallic, normal) can be generated via Marigold de
 | Non-PBR | PBR | Non-PBR | PBR |
 | :------: | :------: | :------: | :------: |
 | <img src="docs/img/trellis2/qwen_house.gif" alt="House (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_house_pbr.gif" alt="House (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard.gif" alt="Wizard (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_wizard_pbr.gif" alt="Wizard (PBR)" width="200"> |
-| <small>Qwen — House</small> | <small>Qwen — House (PBR)</small> | <small>SDXL — Wizard</small> | <small>SDXL — Wizard (PBR)</small> |
+| <small>House</small> | <small>House (PBR)</small> | <small>Wizard</small> | <small>Wizard (PBR)</small> |
 | <img src="docs/img/trellis2/qwen_chest.gif" alt="Chest (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_chest_pbr.gif" alt="Chest (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk.gif" alt="Obelisk (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_obelisk_pbr.gif" alt="Obelisk (PBR)" width="200"> |
-| <small>Qwen — Chest</small> | <small>Qwen — Chest (PBR)</small> | <small>Qwen — Obelisk</small> | <small>Qwen — Obelisk (PBR)</small> |
+| <small>Chest</small> | <small>Chest (PBR)</small> | <small>Obelisk</small> | <small>Obelisk (PBR)</small> |
 | <img src="docs/img/trellis2/sdxl_lunar_habitat.gif" alt="Lunar Habitat (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_lunar_habitat_pbr.gif" alt="Lunar Habitat (PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger.gif" alt="Scavenger (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_scavenger_pbr.gif" alt="Scavenger (PBR)" width="200"> |
-| <small>SDXL — Lunar Habitat</small> | <small>SDXL — Lunar Habitat (PBR)</small> | <small>SDXL — Scavenger</small> | <small>SDXL — Scavenger (PBR)</small> |
+| <small>Lunar Habitat</small> | <small>Lunar Habitat (PBR)</small> | <small>Scavenger</small> | <small>Scavenger (PBR)</small> |
 | <img src="docs/img/trellis2/sdxl_shaman.gif" alt="Shaman (non-PBR)" width="200"> | <img src="docs/img/trellis2/sdxl_shaman_pbr.gif" alt="Shaman (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman.gif" alt="Cyberpunk Woman (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_cyberpunk_woman_pbr.gif" alt="Cyberpunk Woman (PBR)" width="200"> |
-| <small>SDXL — Shaman</small> | <small>SDXL — Shaman (PBR)</small> | <small>Qwen — Cyberpunk Woman</small> | <small>Qwen — Cyberpunk Woman (PBR)</small> |
+| <small>Shaman</small> | <small>Shaman (PBR)</small> | <small>Cyberpunk Woman</small> | <small>Cyberpunk Woman (PBR)</small> |
 | <img src="docs/img/trellis2/qwen_crate.gif" alt="Crate (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_crate_pbr.gif" alt="Crate (PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump.gif" alt="Tree Stump (non-PBR)" width="200"> | <img src="docs/img/trellis2/qwen_tree_stump_pbr.gif" alt="Tree Stump (PBR)" width="200"> |
-| <small>Qwen — Crate</small> | <small>Qwen — Crate (PBR)</small> | <small>Qwen — Tree Stump</small> | <small>Qwen — Tree Stump (PBR)</small> |
+| <small>Crate</small> | <small>Crate (PBR)</small> | <small>Tree Stump</small> | <small>Tree Stump (PBR)</small> |
+
+<details>
+<summary>Prompts used</summary>
+
+1. **House (Qwen):** *"house, small house, cozy, wooden, hut"*
+2. **Wizard (SDXL):** *"wizard character, intricate embroidered purple and gold robes, pointed hat, wooden staff with glowing crystal, leather belt with pouches, fantasy character concept art, 4k"*
+3. **Chest (Qwen):** *"A highly detailed wooden treasure chest bound in heavy, dark iron. The chest is slightly open, revealing a pile of glowing gold coins inside. The wood is old and splintered, and the iron has patches of orange rust."*
+4. **Obelisk (Qwen):** *"An ancient, monolithic stone obelisk covered in glowing green runic carvings. The grey stone is deeply cracked from age and covered in patches of thick, fuzzy green moss."*
+5. **Lunar Habitat (SDXL):** *"futuristic lunar habitat module, domed cylinder base building, pristine white composite panels, high gloss reflections, gold foil wrapped pipes, circular metal airlock door, glowing blue exterior floodlights, sci-fi base architecture, clean PBR textures, hard surface modeling, 8k"*
+6. **Scavenger (SDXL):** *"full body character, A-pose, post-apocalyptic scavenger, oil-stained olive green military jacket, tattered clothing, rusty street sign armor, dirty leather belts, scratched welding mask, wasteland survivalist, grunge textures, heavy weathering, fallout style character asset"*
+7. **Shaman (SDXL):** *"full body character, A-pose, tribal shaman, rough woven brown wool, thick white animal fur, carved white bone mask, glowing purple magical runes, bare arms, fantasy RPG character class, organic textures, highly detailed displacement map, ZBrush sculpt style"*
+8. **Cyberpunk Woman (Qwen):** *"A futuristic cyberpunk female mercenary standing in a neutral pose. She has a robotic left arm made of black metal and glowing blue wires. She wears a tactical jacket made of synthetic material with glowing LED strips on the collar and futuristic sneakers."*
+9. **Crate (Qwen):** *"A yellow industrial hazmat shipping crate. On the side, there is a large, highly legible warning label that says \"DANGER: BIOHAZARD\" in bold black letters. The crate has a digital keypad on the front and two red oxygen tanks strapped to the left side."*
+10. **Tree Stump (Qwen):** *"A mystical, ancient gnarled tree stump with exposed, twisting roots. Growing out of the top is a cluster of translucent, glowing bioluminescent blue mushrooms and delicate, thin fern leaves. Fantasy RPG asset, hand-painted texture style mixed with photorealism, highly detailed."*
+
+</details>
 
 
 ### Showcase 4: PBR Gallery
@@ -178,12 +194,12 @@ A selection of assets with PBR materials enabled, demonstrating realistic surfac
 <details>
 <summary>Prompts used</summary>
 
-1. **Pot of Gold:** *"TODO"*
-2. **Astrolabe:** *"TODO"*
-3. **Tree Stump:** *"TODO"*
-4. **Rabbit:** *"TODO"*
-5. **Crate:** *"TODO"*
-6. **Obelisk (Qwen):** *"TODO"*
+1. **Pot of Gold:** *"pot of gold"*
+2. **Astrolabe:** *"A highly detailed, antique steampunk astrolabe resting on a rough-hewn wooden pedestal. The astrolabe features gleaming polished brass rings, tarnished copper gears, and a faceted glass crystal in the center. Studio lighting, photorealistic, 8k resolution, intricate mechanical details, isolated on a solid background."*
+3. **Tree Stump:** *"A mystical, ancient gnarled tree stump with exposed, twisting roots. Growing out of the top is a cluster of translucent, glowing bioluminescent blue mushrooms and delicate, thin fern leaves. Fantasy RPG asset, hand-painted texture style mixed with photorealism, highly detailed."*
+4. **Rabbit:** *"a white rabbit"*
+5. **Crate:** *"A yellow industrial hazmat shipping crate. On the side, there is a large, highly legible warning label that says \"DANGER: BIOHAZARD\" in bold black letters. The crate has a digital keypad on the front and two red oxygen tanks strapped to the left side."*
+6. **Obelisk (Qwen):** *"An ancient, monolithic stone obelisk covered in glowing green runic carvings. The grey stone is deeply cracked from age and covered in patches of thick, fuzzy green moss."*
 
 </details>
 
