@@ -553,7 +553,7 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-TRELLIS2",
         "license": "MIT (Note: textured pipeline uses NVIDIA non-commercial libs)", "packages": ["trellis2"],
-        "pip_packages": ["comfy-env==0.2.0"],
+        "pip_packages": ["comfy-env==0.2.0", "numpy>=2.0.0", "scipy>=1.14.0"],
         "clean_envs": True,
         "run_install_script": True,
         "post_clone_patches": [
@@ -630,6 +630,20 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
                 "marker": "StableGen patch: BiRefNet fp32",
                 "anchor": "self.model.eval()",
                 "patch": "self.model.eval()\n        self.model.float()  # StableGen patch: BiRefNet fp32 — avoid fp16/fp32 dtype mismatch",
+                "mode": "replace",
+            },
+            {
+                "file": "nodes/trellis2/pipelines/rembg/BiRefNet.py",
+                "marker": "StableGen patch: timm.layers compat",
+                "anchor": "import torch",
+                "patch": (
+                    "import torch\n"
+                    "import sys as _sys  # StableGen patch: timm.layers compat\n"
+                    "if 'timm.layers' not in _sys.modules:\n"
+                    "    try:\n"
+                    "        import timm.models.layers as _tl; _sys.modules['timm.layers'] = _tl  # timm<0.9 compat for BiRefNet\n"
+                    "    except ImportError: pass\n"
+                ),
                 "mode": "replace",
             },
         ]
@@ -834,6 +848,163 @@ def _patch_comfy_env_platform_tag(comfyui_path: Path):
     content = content.replace(old, f'return "linux"  {marker}')
     cuda_wheels_path.write_text(content, encoding="utf-8")
     print("  Patched comfy-env _platform_tag() for Linux manylinux matching")
+
+
+def _patch_comfy_env_wheel_fallback(comfyui_path: Path):
+    """Fix comfy-env get_wheel_url missing torch version fallback.
+
+    Some packages (e.g. flash-attn) lack wheels for the exact torch version
+    comfy-env pins (e.g. torch 2.4 on Linux, though torch 2.5+ exist).
+    Patch get_wheel_url to try higher torch versions when exact match fails.
+    """
+    python_exe = find_comfyui_python(comfyui_path)
+    result = subprocess.run(
+        [python_exe, "-c",
+         "import comfy_env.packages.cuda_wheels as m; print(m.__file__)"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("  WARNING: Could not locate comfy_env cuda_wheels.py, "
+              "skipping wheel fallback patch")
+        return
+
+    cuda_wheels_path = Path(result.stdout.strip())
+    if not cuda_wheels_path.is_file():
+        print(f"  WARNING: {cuda_wheels_path} not found, "
+              "skipping wheel fallback patch")
+        return
+
+    content = cuda_wheels_path.read_text(encoding="utf-8")
+    marker = "# StableGen patch: torch version fallback"
+    if marker in content:
+        print("  comfy-env wheel fallback patch already applied")
+        return
+
+    anchor = "    return None\n\n\ndef find_available_wheels"
+    if anchor not in content:
+        print("  WARNING: Could not find get_wheel_url anchor in "
+              "cuda_wheels.py (already fixed upstream?)")
+        return
+
+    fallback = "\n".join([
+        "    " + marker,
+        "    _cu_re = re.compile(r'\\+cu' + cuda_short + r'torch(\\d+)')",
+        "    for pkg_dir in _pkg_variants(package):",
+        "        try:",
+        '            with urllib.request.urlopen(f"{CUDA_WHEELS_INDEX}{pkg_dir}/", timeout=10) as resp:',
+        '                html = resp.read().decode("utf-8")',
+        "        except Exception: continue",
+        "        _best_url, _best_tv = None, None",
+        "        for match in link_pattern.finditer(html):",
+        "            wheel_url, display = match.group(1), match.group(2)",
+        "            _tv_m = _cu_re.search(display)",
+        "            if not _tv_m: continue",
+        "            _tv = int(_tv_m.group(1))",
+        "            if _tv <= int(torch_short): continue",
+        "            if py_tag not in display: continue",
+        "            if platform_tag and platform_tag not in display: continue",
+        "            if _best_tv is None or _tv < _best_tv:",
+        "                _best_tv = _tv",
+        '                _best_url = wheel_url if wheel_url.startswith("http") else f"{CUDA_WHEELS_INDEX}{pkg_dir}/{wheel_url}"',
+        "        if _best_url:",
+        "            return _best_url",
+    ]) + "\n"
+
+    content = content.replace(anchor, fallback + anchor)
+    cuda_wheels_path.write_text(content, encoding="utf-8")
+    print("  Patched comfy-env get_wheel_url() for torch version fallback")
+
+
+def _patch_comfy_env_user_site_isolation(comfyui_path: Path):
+    """Prevent user site-packages from leaking into comfy-env workers.
+
+    comfy-env's build_isolation_env() never sets PYTHONNOUSERSITE, so
+    packages installed in ~/.local/lib/pythonX.Y/site-packages/ leak into
+    the isolated worker subprocess.  Old versions of scipy, tensorboard,
+    etc. from user site-packages then clash with the env's numpy 2.x.
+
+    Fix: set PYTHONNOUSERSITE=1 in build_isolation_env() so the worker
+    subprocess ignores the user site-packages directory entirely.
+    """
+    python_exe = find_comfyui_python(comfyui_path)
+    result = subprocess.run(
+        [python_exe, "-c",
+         "import comfy_env.isolation.wrap as m; print(m.__file__)"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("  WARNING: Could not locate comfy_env wrap.py, "
+              "skipping user site isolation patch")
+        return
+
+    wrap_path = Path(result.stdout.strip())
+    if not wrap_path.is_file():
+        print(f"  WARNING: {wrap_path} not found, "
+              "skipping user site isolation patch")
+        return
+
+    content = wrap_path.read_text(encoding="utf-8")
+    marker = "# StableGen patch: block user site-packages"
+    if marker in content:
+        print("  comfy-env user site isolation patch already applied")
+        return
+
+    anchor = '    env["COMFYUI_ISOLATION_WORKER"] = "1"'
+    if anchor not in content:
+        print("  WARNING: Could not find build_isolation_env anchor in "
+              "wrap.py (already fixed upstream?)")
+        return
+
+    patch_line = f'    env["PYTHONNOUSERSITE"] = "1"  {marker}'
+    content = content.replace(anchor, anchor + "\n" + patch_line)
+    wrap_path.write_text(content, encoding="utf-8")
+    print("  Patched comfy-env build_isolation_env() to block user site-packages")
+
+
+def _patch_flex_gemm_autotuner(repo_path: Path):
+    """Fix flex_gemm TritonPersistentCacheAutotuner for triton 3.0+.
+
+    flex_gemm 1.0.0 passes a ``do_bench`` argument to triton's
+    ``Autotuner.__init__`` which was removed in triton 3.0.  Drop it so
+    the call signature matches.
+    """
+    import glob as _glob
+    env_dirs = _glob.glob(str(repo_path / "nodes" / "_env_*"))
+    if not env_dirs:
+        return
+    for env_dir in env_dirs:
+        matches = _glob.glob(
+            str(Path(env_dir) / "lib" / "python*" / "site-packages"
+                / "flex_gemm" / "utils" / "autotuner.py"))
+        for autotuner_path in matches:
+            autotuner_path = Path(autotuner_path)
+            content = autotuner_path.read_text(encoding="utf-8")
+            marker = "# StableGen patch: drop do_bench for triton 3.0+"
+            if marker in content:
+                print("  flex_gemm autotuner patch already applied")
+                continue
+            old = (
+                "            warmup,\n"
+                "            rep,\n"
+                "            use_cuda_graph,\n"
+                "            do_bench,\n"
+                "        )"
+            )
+            if old not in content:
+                print("  WARNING: Could not find do_bench in flex_gemm "
+                      "autotuner.py (already fixed upstream?)")
+                continue
+            new = (
+                "            warmup if warmup is not None else 25,  # StableGen patch: triton 3.0 needs int\n"
+                "            rep if rep is not None else 100,\n"
+                "            use_cuda_graph,\n"
+                f"        )  {marker}\n"
+                "        if not hasattr(self, 'keys'):  # StableGen patch: triton 3.0 compat\n"
+                "            self.keys = key"
+            )
+            content = content.replace(old, new)
+            autotuner_path.write_text(content, encoding="utf-8")
+            print("  Patched flex_gemm autotuner: removed do_bench for triton 3.0+")
 
 
 def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
@@ -1278,15 +1449,22 @@ def main():
                 # Install pip dependencies required by this custom node
                 if item_details.get("pip_packages"):
                     install_pip_packages(item_details["pip_packages"], comfyui_base_path)
-                    # Fix comfy-env 0.2.0 Linux manylinux platform tag bug
-                    if any("comfy-env" in p for p in item_details["pip_packages"]):
-                        _patch_comfy_env_platform_tag(comfyui_base_path)
                 # Apply compatibility patches (e.g. Python 3.10 polyfills)
                 if item_details.get("post_clone_patches"):
                     apply_post_clone_patches(item_details, comfyui_base_path)
                 # Run node's install.py for full dependency resolution (e.g. CUDA wheels)
                 if item_details.get("run_install_script"):
                     run_node_install_script(item_details, comfyui_base_path)
+                    # Fix flex_gemm/triton version mismatch in comfy-env isolated envs
+                    _patch_flex_gemm_autotuner(target_full_path)
+                # Force comfy-env back to 0.2.0 and patch it AFTER install.py,
+                # since the node's requirements.txt may pin an older version
+                if item_details.get("pip_packages") and any("comfy-env" in p for p in item_details["pip_packages"]):
+                    print("  Re-installing comfy-env==0.2.0 (overriding node requirements.txt)...")
+                    install_pip_packages(["comfy-env==0.2.0"], comfyui_base_path)
+                    _patch_comfy_env_platform_tag(comfyui_base_path)
+                    _patch_comfy_env_wheel_fallback(comfyui_base_path)
+                    _patch_comfy_env_user_site_isolation(comfyui_base_path)
             elif item_details["type"] == "model":
                 target_full_path = comfyui_base_path / item_details["target_path_relative"] / item_details["filename"]
                 download_file(item_details, comfyui_base_path)
