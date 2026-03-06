@@ -708,8 +708,9 @@ MENU_PACKAGES: Dict[str, Dict[str, Any]] = {
         "description_suffix": "*Installs Qwen Core components plus Nunchaku nodes and the Int4 quantized model (12.7GB).*"},
     '8': {"name": "[TRELLIS.2] Image-to-3D Node",
         "tags": ["trellis2"],
-        "size_gb": 0.1,
-        "description_suffix": "*Installs ComfyUI-TRELLIS2 custom node. Models are downloaded automatically on first use by the node.*\n"
+        "size_gb": 20.4,
+        "description_suffix": "*Installs ComfyUI-TRELLIS2 custom node + isolated Python environment (~5 GB).*\n"
+                              "    *TRELLIS.2 models (~15.4 GB) are downloaded automatically from HuggingFace on first use.*\n"
                               "    *LICENSE NOTICE: Only the 'Native (TRELLIS.2)' texture mode uses nvdiffrast/nvdiffrec*\n"
                               "    *(NVIDIA Source Code License — non-commercial use only). See README.md for full details.*",
     },

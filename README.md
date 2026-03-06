@@ -358,7 +358,7 @@ The `installer.py` script (found in this repository) automates the download and 
 | 5 | Qwen Core | Qwen Image Edit texturing architecture | ~20.3 GB |
 | 6 | Qwen + Lightning LoRAs | Qwen with additional Lightning LoRAs | ~22.6 GB |
 | 7 | Qwen Nunchaku | Qwen with Int4 quantized Nunchaku model (lower VRAM) | ~33.0 GB |
-| 8 | TRELLIS.2 | Image/text-to-3D mesh generation (models auto-download on first use) | ~0.1 GB |
+| 8 | TRELLIS.2 | Image/text-to-3D mesh generation (~5 GB install + ~15.4 GB models on first use) | ~20.4 GB |
 | 9 | Marigold IID | PBR decomposition node (models auto-download on first use) | ~0.01 GB |
 | 10 | StableDelight | Specular-free albedo for PBR (includes model download) | ~3.3 GB |
 | 11 | FLUX.2 Klein *(experimental)* | Klein texturing architecture (~13 GB VRAM required) | ~12.4 GB |
@@ -370,7 +370,7 @@ The `installer.py` script (found in this repository) automates the download and 
 - **Texturing only (Qwen):** Option 5 (or 6/7)
 - **Add PBR to any setup:** Options 9 + 10 (included in options 3 and 4)
 
-> **Note:** Some packages (TRELLIS.2, Marigold IID) download additional models automatically on first use via ComfyUI. Expect extra downloads the first time you run these features.
+> **Note:** TRELLIS.2 and Marigold IID download additional models automatically on first use via HuggingFace. The sizes shown above include these first-use downloads. Expect the initial run to take longer.
 4.  **Restart ComfyUI:** If ComfyUI was running, restart it to load new custom nodes.
 
 *(For manual dependency installation-including FLUX.1-dev and Qwen Image Edit setups-see `docs/MANUAL_INSTALLATION.md`.)*
