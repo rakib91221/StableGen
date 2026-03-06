@@ -1013,6 +1013,13 @@ def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
     Some nodes (e.g. ComfyUI-TRELLIS2) use comfy_env which manages CUDA
     wheel installation from custom indices.  Running their install.py
     after cloning lets comfy_env handle everything automatically.
+
+    The first attempt may fail if the auto-detected CUDA version (e.g.
+    12.8) lacks wheels on the cuda-wheels index.  The node's install.py
+    also downgrades comfy-env to 0.1.92 (via requirements.txt of both
+    TRELLIS2 and GeometryPack), wiping our patches from the on-disk
+    package.  Within a single subprocess the in-memory modules survive,
+    but a retry needs freshly re-applied patches on disk.
     """
     repo_path = comfyui_path / item_details["target_dir_relative"] / item_details["repo_name"]
     install_script = repo_path / "install.py"
@@ -1023,6 +1030,7 @@ def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
     python_exe = find_comfyui_python(comfyui_path)
     print(f"  Running install.py for {item_details['name']}...")
     print(f"    {python_exe} {install_script}")
+
     try:
         subprocess.run(
             [python_exe, str(install_script)],
@@ -1030,11 +1038,36 @@ def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
             cwd=str(repo_path),
         )
         print(f"  Successfully ran install.py for '{item_details['name']}'.")
-    except subprocess.CalledProcessError as e:
-        print(f"  ERROR: install.py failed (exit code {e.returncode}).")
-        print(f"  You may need to run it manually:")
-        print(f"    cd {repo_path}")
-        print(f"    {python_exe} install.py")
+    except subprocess.CalledProcessError:
+        # The cuda-wheels index may not have wheels for the auto-detected
+        # CUDA version yet (e.g. cu128).  Retry with CUDA 12.4 which has
+        # the widest wheel coverage for flex_gemm / nvdiffrast.
+        #
+        # The first attempt's requirements.txt installs downgraded
+        # comfy-env to 0.1.92 on disk (patches wiped).  Restore 0.2.0
+        # with patches before retrying so the new subprocess sees them.
+        print("  Install failed. Restoring comfy-env 0.2.0 + patches for retry...")
+        install_pip_packages(["comfy-env==0.2.0"], comfyui_path)
+        _patch_comfy_env_platform_tag(comfyui_path)
+        _patch_comfy_env_wheel_fallback(comfyui_path)
+        _patch_comfy_env_user_site_isolation(comfyui_path)
+
+        print("  Retrying with CUDA 12.4 fallback...")
+        env = os.environ.copy()
+        env["COMFY_ENV_CUDA_VERSION"] = "12.4"
+        try:
+            subprocess.run(
+                [python_exe, str(install_script)],
+                check=True,
+                cwd=str(repo_path),
+                env=env,
+            )
+            print(f"  Successfully ran install.py for '{item_details['name']}' (CUDA 12.4 fallback).")
+        except subprocess.CalledProcessError as e:
+            print(f"  ERROR: install.py failed (exit code {e.returncode}).")
+            print(f"  You may need to run it manually:")
+            print(f"    cd {repo_path}")
+            print(f"    {python_exe} install.py")
     except FileNotFoundError:
         print(f"  ERROR: Python executable not found at '{python_exe}'.")
 
@@ -1449,6 +1482,12 @@ def main():
                 # Install pip dependencies required by this custom node
                 if item_details.get("pip_packages"):
                     install_pip_packages(item_details["pip_packages"], comfyui_base_path)
+                # Apply comfy-env patches BEFORE running install.py,
+                # since the install script needs them (e.g. platform_tag for Linux wheel lookup)
+                if item_details.get("pip_packages") and any("comfy-env" in p for p in item_details["pip_packages"]):
+                    _patch_comfy_env_platform_tag(comfyui_base_path)
+                    _patch_comfy_env_wheel_fallback(comfyui_base_path)
+                    _patch_comfy_env_user_site_isolation(comfyui_base_path)
                 # Apply compatibility patches (e.g. Python 3.10 polyfills)
                 if item_details.get("post_clone_patches"):
                     apply_post_clone_patches(item_details, comfyui_base_path)
@@ -1457,7 +1496,7 @@ def main():
                     run_node_install_script(item_details, comfyui_base_path)
                     # Fix flex_gemm/triton version mismatch in comfy-env isolated envs
                     _patch_flex_gemm_autotuner(target_full_path)
-                # Force comfy-env back to 0.2.0 and patch it AFTER install.py,
+                # Force comfy-env back to 0.2.0 and re-apply patches AFTER install.py,
                 # since the node's requirements.txt may pin an older version
                 if item_details.get("pip_packages") and any("comfy-env" in p for p in item_details["pip_packages"]):
                     print("  Re-installing comfy-env==0.2.0 (overriding node requirements.txt)...")
