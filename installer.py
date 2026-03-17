@@ -4,6 +4,8 @@ import sys
 import argparse
 import subprocess
 import requests
+import glob
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Set, Any
@@ -449,7 +451,8 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "git_url": "https://github.com/city96/ComfyUI-GGUF.git",
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-GGUF",
-        "license": "Apache 2.0", "packages": ["qwen_core"]
+        "license": "Apache 2.0", "packages": ["qwen_core"],
+        "pip_packages": ["gguf"]
     },
     "model_qwen_unet_q3_k_m": {
         "id": "model_qwen_unet_q3_k_m", "type": "model", "name": "Qwen Image Edit 2509 UNet (Q3_K_M)",
@@ -553,7 +556,7 @@ DEPENDENCIES: Dict[str, Dict[str, Any]] = {
         "target_dir_relative": "custom_nodes",
         "repo_name": "ComfyUI-TRELLIS2",
         "license": "MIT (Note: textured pipeline uses NVIDIA non-commercial libs)", "packages": ["trellis2"],
-        "pip_packages": ["comfy-env==0.2.0", "numpy>=2.0.0", "scipy>=1.14.0"],
+        "pip_packages": ["comfy-env==0.2.0", "numpy<2.0.0"],
         "clean_envs": True,
         "run_install_script": True,
         "post_clone_patches": [
@@ -786,7 +789,7 @@ def find_comfyui_python(comfyui_path: Path) -> str:
     return sys.executable
 
 
-def install_pip_packages(pip_packages: List[str], comfyui_path: Path):
+def install_pip_packages(pip_packages: List[str], comfyui_path: Path, force_reinstall: bool = False):
     """Install pip packages into ComfyUI's Python environment."""
     python_exe = find_comfyui_python(comfyui_path)
     print(f"  Installing pip packages into ComfyUI Python: {python_exe}")
@@ -794,7 +797,7 @@ def install_pip_packages(pip_packages: List[str], comfyui_path: Path):
         print(f"    pip install {pkg} ...")
         try:
             subprocess.run(
-                [python_exe, "-m", "pip", "install", pkg],
+                [python_exe, "-m", "pip", "install"] + (["--force-reinstall", "--no-deps"] if force_reinstall else []) + [pkg],
                 check=True,
             )
             print(f"    Successfully installed '{pkg}'.")
@@ -805,6 +808,14 @@ def install_pip_packages(pip_packages: List[str], comfyui_path: Path):
             print(f"    ERROR: Python executable not found at '{python_exe}'.")
             print(f"    Please install '{pkg}' manually into your ComfyUI Python environment.")
             break
+
+
+def _apply_all_comfy_env_patches(comfyui_path: Path):
+    """Apply all comfy-env patches (platform tag, wheel fallback, site isolation, dist-info)."""
+    _patch_comfy_env_platform_tag(comfyui_path)
+    _patch_comfy_env_wheel_fallback(comfyui_path)
+    _patch_comfy_env_user_site_isolation(comfyui_path)
+    _patch_comfy_env_distinfo_normalize(comfyui_path)
 
 
 def _patch_comfy_env_platform_tag(comfyui_path: Path):
@@ -820,7 +831,7 @@ def _patch_comfy_env_platform_tag(comfyui_path: Path):
     python_exe = find_comfyui_python(comfyui_path)
     result = subprocess.run(
         [python_exe, "-c",
-         "import comfy_env.packages.cuda_wheels as m; print(m.__file__)"],
+         "import importlib.util as u, os; s=u.find_spec('comfy_env'); print(os.path.join(os.path.dirname(s.origin), 'packages', 'cuda_wheels.py') if s and s.origin else '')"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -861,7 +872,7 @@ def _patch_comfy_env_wheel_fallback(comfyui_path: Path):
     python_exe = find_comfyui_python(comfyui_path)
     result = subprocess.run(
         [python_exe, "-c",
-         "import comfy_env.packages.cuda_wheels as m; print(m.__file__)"],
+         "import importlib.util as u, os; s=u.find_spec('comfy_env'); print(os.path.join(os.path.dirname(s.origin), 'packages', 'cuda_wheels.py') if s and s.origin else '')"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -930,7 +941,7 @@ def _patch_comfy_env_user_site_isolation(comfyui_path: Path):
     python_exe = find_comfyui_python(comfyui_path)
     result = subprocess.run(
         [python_exe, "-c",
-         "import comfy_env.isolation.wrap as m; print(m.__file__)"],
+         "import importlib.util as u, os; s=u.find_spec('comfy_env'); print(os.path.join(os.path.dirname(s.origin), 'isolation', 'wrap.py') if s and s.origin else '')"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -962,6 +973,108 @@ def _patch_comfy_env_user_site_isolation(comfyui_path: Path):
     print("  Patched comfy-env build_isolation_env() to block user site-packages")
 
 
+def _patch_comfy_env_distinfo_normalize(comfyui_path: Path):
+    """Fix any dist-info folders crashing pixi rebuilds.
+
+    If flex_gemm or nvdiffrec-render is installed in a pixi environment, its wheel creates a
+    .dist-info map with an unnormalized hyphen (flex-gemm-...) which crashes
+    subsequent uv pip install runs due to strict PEP440 string validation.
+    We patch comfy_env to monkeypatch subprocess.run so this fix runs after every pip install.
+    """
+    python_exe = find_comfyui_python(comfyui_path)
+    result = subprocess.run(
+        [python_exe, "-c",
+         "import importlib.util as u, os; s=u.find_spec('comfy_env'); print(os.path.join(os.path.dirname(s.origin), 'install.py') if s and s.origin else '')"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"  WARNING: Could not locate comfy_env install.py: {result.stderr}")
+        return
+
+    install_path = Path(result.stdout.strip().splitlines()[-1])
+    if not install_path.is_file():
+        print(f"  WARNING: comfy_env install.py does not exist at {install_path}")
+        return
+
+    content = install_path.read_text(encoding="utf-8")
+    marker = "# StableGen patch v7: aggressive dist-info cleanup via subprocess monkeypatch"
+    if marker in content:
+        print("  comfy-env universal dist-info patch already applied")
+        return
+
+    if "# StableGen patch" in content:
+        print("  Fixing previously broken comfy-env installation...")
+        subprocess.run([python_exe, "-m", "pip", "install", "--force-reinstall", "--no-deps", "comfy-env==0.2.0"], check=True, capture_output=True)
+        _patch_comfy_env_platform_tag(comfyui_path)
+        _patch_comfy_env_wheel_fallback(comfyui_path)
+        _patch_comfy_env_user_site_isolation(comfyui_path)
+        content = install_path.read_text(encoding="utf-8")
+
+    anchor = 'log(f"[comfy-env] build_dir={build_dir}")'
+    if anchor not in content:
+        print(f"  WARNING: Could not find anchor in comfy_env install.py")
+        return
+
+    # Get the correct indentation from the anchor dynamically
+    _indent_match = re.search(r"([ \t]*)" + re.escape(anchor), content)
+    _ind = _indent_match.group(1) if _indent_match else "    "
+
+    # Format patch properly
+    patch_lines = []
+    
+    # We use a raw string for the regex backslashes, but f-string needed for anchor/marker.
+    # To keep it simple, we use a normal string and .replace() instead of f-string
+    _raw_patch = """ANCHOR
+MARKER
+try:
+    _orig_subprocess_run = subprocess.run
+    def _patched_subprocess_run(*args, **kwargs):
+        _res = _orig_subprocess_run(*args, **kwargs)
+        try:
+            import sys as _sys_patch
+            import pathlib as _pathlib_patch
+            import re as _re_patch
+            def _fix_dist_info(_p):
+                if not _p.is_dir() or not _p.name.endswith(".dist-info"): return
+                _m = _re_patch.match(r"^([a-zA-Z0-9_\-]+?)-([0-9].*)\.dist-info$", _p.name)
+                if _m and "-" in _m.group(1):
+                    _new_name = _m.group(1).replace("-", "_") + "-" + _m.group(2) + ".dist-info"
+                    _p.rename(_p.parent / _new_name)
+
+            for _sp in _sys_patch.path:
+                _sp_path = _pathlib_patch.Path(_sp)
+                if _sp_path.is_dir() and "site-packages" in _sp_path.name:
+                    for _p in _sp_path.glob("*.dist-info"):
+                        _fix_dist_info(_p)
+
+            _sp_dir = build_dir / ".pixi" / "envs" / "default" / ("Lib" if _sys_patch.platform == "win32" else "lib")
+            if _sys_patch.platform != "win32":
+                for _p in _sp_dir.glob("python*"): _sp_dir = _p
+            _sp_dir = _sp_dir / "site-packages"
+            if _sp_dir.exists():
+                for _p in _sp_dir.iterdir():
+                    _fix_dist_info(_p)
+        except Exception as _e:
+            log(f"Failed to normalize dist-info naming: {_e}")
+        return _res
+    subprocess.run = _patched_subprocess_run
+except Exception as _e:
+    pass"""
+    
+    _raw_patch = _raw_patch.replace("ANCHOR", anchor).replace("MARKER", marker)
+
+    for i, line in enumerate(_raw_patch.split("\n")):
+        if i == 0:
+            patch_lines.append(line)
+        else:
+            patch_lines.append(_ind + line)
+    patch = "\n".join(patch_lines)
+
+    content = content.replace(anchor, patch)
+    install_path.write_text(content, encoding="utf-8")
+    print("  Patched comfy-env installation to monkeypatch subprocess.run for dist-info normalizations")
+
+
 def _patch_flex_gemm_autotuner(repo_path: Path):
     """Fix flex_gemm TritonPersistentCacheAutotuner for triton 3.0+.
 
@@ -969,12 +1082,11 @@ def _patch_flex_gemm_autotuner(repo_path: Path):
     ``Autotuner.__init__`` which was removed in triton 3.0.  Drop it so
     the call signature matches.
     """
-    import glob as _glob
-    env_dirs = _glob.glob(str(repo_path / "nodes" / "_env_*"))
+    env_dirs = glob.glob(str(repo_path / "nodes" / "_env_*"))
     if not env_dirs:
         return
     for env_dir in env_dirs:
-        matches = _glob.glob(
+        matches = glob.glob(
             str(Path(env_dir) / "lib" / "python*" / "site-packages"
                 / "flex_gemm" / "utils" / "autotuner.py"))
         for autotuner_path in matches:
@@ -1048,10 +1160,8 @@ def run_node_install_script(item_details: Dict[str, Any], comfyui_path: Path):
         # comfy-env to 0.1.92 on disk (patches wiped).  Restore 0.2.0
         # with patches before retrying so the new subprocess sees them.
         print("  Install failed. Restoring comfy-env 0.2.0 + patches for retry...")
-        install_pip_packages(["comfy-env==0.2.0"], comfyui_path)
-        _patch_comfy_env_platform_tag(comfyui_path)
-        _patch_comfy_env_wheel_fallback(comfyui_path)
-        _patch_comfy_env_user_site_isolation(comfyui_path)
+        install_pip_packages(["comfy-env==0.2.0"], comfyui_path, force_reinstall=True)
+        _apply_all_comfy_env_patches(comfyui_path)
 
         print("  Retrying with CUDA 12.4 fallback...")
         env = os.environ.copy()
@@ -1554,9 +1664,7 @@ def main():
                 # Apply comfy-env patches BEFORE running install.py,
                 # since the install script needs them (e.g. platform_tag for Linux wheel lookup)
                 if item_details.get("pip_packages") and any("comfy-env" in p for p in item_details["pip_packages"]):
-                    _patch_comfy_env_platform_tag(comfyui_base_path)
-                    _patch_comfy_env_wheel_fallback(comfyui_base_path)
-                    _patch_comfy_env_user_site_isolation(comfyui_base_path)
+                    _apply_all_comfy_env_patches(comfyui_base_path)
                 # Apply compatibility patches (e.g. Python 3.10 polyfills)
                 if item_details.get("post_clone_patches"):
                     apply_post_clone_patches(item_details, comfyui_base_path)
@@ -1569,10 +1677,8 @@ def main():
                 # since the node's requirements.txt may pin an older version
                 if item_details.get("pip_packages") and any("comfy-env" in p for p in item_details["pip_packages"]):
                     print("  Re-installing comfy-env==0.2.0 (overriding node requirements.txt)...")
-                    install_pip_packages(["comfy-env==0.2.0"], comfyui_base_path)
-                    _patch_comfy_env_platform_tag(comfyui_base_path)
-                    _patch_comfy_env_wheel_fallback(comfyui_base_path)
-                    _patch_comfy_env_user_site_isolation(comfyui_base_path)
+                    install_pip_packages(["comfy-env==0.2.0"], comfyui_base_path, force_reinstall=True)
+                    _apply_all_comfy_env_patches(comfyui_base_path)
             elif item_details["type"] == "model":
                 target_full_path = comfyui_base_path / item_details["target_path_relative"] / item_details["filename"]
                 download_file(item_details, comfyui_base_path)
