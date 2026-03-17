@@ -16,17 +16,15 @@ import colorsys
 import numpy as np
 from mathutils import Vector
 
-from .project import (
+from .texturing.projection import (
     project_image,
     create_native_raycast_visibility,
     create_native_feather,
     _SG_BUFFER_UV_NAME,
     _copy_uv_to_attribute,
 )
-from .render_tools import (
-    export_visibility,
-    _get_camera_resolution,
-)
+from .texturing.rendering import export_visibility
+from .cameras.geometry import _get_camera_resolution
 from .utils import get_file_path, get_generation_dirs, ensure_dirs_exist, sg_modal_active
 
 

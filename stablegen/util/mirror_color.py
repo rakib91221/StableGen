@@ -6,8 +6,8 @@ import mathutils
 from mathutils import Vector
 
 from ..utils import get_file_path, get_last_material_index, sg_modal_active
-from ..project import project_image
-from ..color_match import color_match_single
+from ..texturing.projection import project_image
+from .color_match import color_match_single
 
 def _build_mirrored_camera_matrix(
     cam: bpy.types.Object,
@@ -351,7 +351,7 @@ class MirrorReproject(bpy.types.Operator):
     def _schedule_delete_camera_later(self, cam_name: str):
         """Delete the temporary camera after StableGen reprojection finishes."""
         import bpy
-        from ..generator import ComfyUIGenerate
+        from ..texturing.generator import ComfyUIGenerate
 
         def _delete():
             # Wait until the generate/reproject operator is done

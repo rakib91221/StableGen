@@ -517,7 +517,7 @@ def configure_output_node_paths(node, directory, filename):
 		else:
 			slot = slots.new(filename)
 	else:
-		print("Warning: Output node API lacks slot accessors; output may fail.")
+		print("[StableGen] Warning: Output node API lacks slot accessors; output may fail.")
 	return slot
 
 
