@@ -14,12 +14,12 @@ _batch_state = {
     'total': 0,
     'cancelled': False,
     'rename_meshes': True,
-    'pre_objects': set(),   # object names present before current generation
+    'pre_objects': set(),   # object ids present before current generation
     'settling': False,      # waiting a few ticks for Trellis2Generate to start
     'settle_count': 0,
 }
 
-_SETTLE_TICKS = 4    # ticks to wait after invoking the operator
+_SETTLE_TICKS = 12   # ticks to wait after invoking the operator
 _TICK_INTERVAL = 0.5 # seconds between timer callbacks
 
 
@@ -63,9 +63,10 @@ def _rename_new_objects(image_path):
     stem = os.path.splitext(os.path.basename(image_path))[0]
     try:
         scene = bpy.context.scene
+        pre_ids = state['pre_objects']
         new_objs = [
             obj for obj in scene.objects
-            if obj.name not in state['pre_objects']
+            if id(obj) not in pre_ids
         ]
         mesh_objs = [o for o in new_objs if o.type == 'MESH']
         if not mesh_objs:
@@ -89,9 +90,9 @@ def _trigger_next():
     state = _batch_state
     image_path = state['images'][state['index']]
 
-    # Snapshot current objects so we can identify new ones after import
+    # Snapshot current object IDs so we can identify new ones after import
     try:
-        state['pre_objects'] = {obj.name for obj in bpy.context.scene.objects}
+        state['pre_objects'] = {id(obj) for obj in bpy.context.scene.objects}
     except Exception:  # noqa: BLE001
         state['pre_objects'] = set()
 
@@ -105,12 +106,12 @@ def _trigger_next():
         return
 
     try:
-        bpy.ops.object.trellis2_generate('INVOKE_DEFAULT')
+        bpy.ops.object.trellis2_generate('EXEC_DEFAULT')
         state['settling'] = True
         state['settle_count'] = 0
     except Exception as exc:  # noqa: BLE001
-        print(f"[BatchGen] Error invoking generate: {exc}")
-        state['cancelled'] = True
+        print(f"[BatchGen] Error invoking generate for image "
+              f"{state['index'] + 1}: {exc}, skipping")
 
 
 def _batch_tick():
@@ -130,7 +131,12 @@ def _batch_tick():
     # ── Settling: waiting for Trellis2Generate to start running ─────────────
     if state['settling']:
         state['settle_count'] += 1
-        if state['settle_count'] >= _SETTLE_TICKS:
+        if Trellis2Generate._is_running:
+            # Operator started successfully, stop settling
+            state['settling'] = False
+        elif state['settle_count'] >= _SETTLE_TICKS:
+            # Timed out waiting for operator — skip this image
+            print(f"[BatchGen] Image {state['index'] + 1} failed to start, skipping")
             state['settling'] = False
         return _TICK_INTERVAL
 
@@ -267,3 +273,14 @@ batch_classes = [
     TRELLIS2_OT_BatchCancel,
     TRELLIS2_OT_BatchClear,
 ]
+
+
+def unregister_batch():
+    """Stop any running batch timer. Called from addon unregister."""
+    _batch_state['cancelled'] = True
+    _batch_state['active'] = False
+    try:
+        if bpy.app.timers.is_registered(_batch_tick):
+            bpy.app.timers.unregister(_batch_tick)
+    except Exception:  # noqa: BLE001
+        pass

@@ -36,7 +36,6 @@ from .texturing.generator import (
 )
 from .mesh_gen.trellis2 import Trellis2Generate
 from .mesh_gen.batch import (
-    batch_classes as _batch_classes,
     TRELLIS2_OT_BatchSelectFolder, TRELLIS2_OT_BatchGenerate,
     TRELLIS2_OT_BatchCancel, TRELLIS2_OT_BatchClear,
 )
@@ -161,6 +160,9 @@ def register():
 
 
 def unregister():
+    from .mesh_gen.batch import unregister_batch
+    unregister_batch()
+
     unregister_properties(
         load_handler=load_handler,
         _sg_queue_load_handler=_sg_queue_load_handler,

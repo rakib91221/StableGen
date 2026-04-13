@@ -235,7 +235,7 @@ class StableGenPanel(bpy.types.Panel):
                 if getattr(context.window_manager, 'sg_batch_running', False) and _bt > 0:
                     progress_col.progress(
                         text=f"Batch: Model {_bi}/{_bt}",
-                        factor=max(0.0, min((_bi - 1) / _bt, 1.0))
+                        factor=max(0.0, min(_bi / _bt, 1.0))
                     )
 
                 # Bar 1 — Overall
@@ -672,7 +672,7 @@ class StableGenPanel(bpy.types.Panel):
                     img_row = split.row(align=True)
                     img_row.prop(scene, "trellis2_input_image", text="")
                     img_row.operator("object.trellis2_batch_select_folder",
-                                     text="", icon="FILE_FOLDER")
+                                     text="", icon="OUTLINER_COLLECTION")
 
                     # Batch folder status row
                     batch_folder = getattr(scene, 'trellis2_batch_folder', '')
