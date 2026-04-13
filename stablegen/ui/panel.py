@@ -229,6 +229,15 @@ class StableGenPanel(bpy.types.Panel):
                 action_row.operator("object.trellis2_generate", text="Cancel TRELLIS.2", icon="CANCEL")
                 progress_col = layout.column()
 
+                # Bar 0 — Batch model counter (only during batch)
+                _bi = getattr(context.window_manager, 'sg_batch_index', 0)
+                _bt = getattr(context.window_manager, 'sg_batch_total', 0)
+                if getattr(context.window_manager, 'sg_batch_running', False) and _bt > 0:
+                    progress_col.progress(
+                        text=f"Batch: Model {_bi}/{_bt}",
+                        factor=max(0.0, min((_bi - 1) / _bt, 1.0))
+                    )
+
                 # Bar 1 — Overall
                 overall_pct = getattr(trellis2_op, '_overall_progress', 0)
                 overall_label = getattr(trellis2_op, '_overall_stage', 'Initializing')
@@ -369,7 +378,24 @@ class StableGenPanel(bpy.types.Panel):
                 err_sub.enabled = False
                 split.operator("stablegen.check_server_status", text="", icon="FILE_REFRESH")
             else:
-                action_row.operator("object.trellis2_generate", text="Generate 3D Mesh", icon="MESH_ICOSPHERE")
+                _batch_folder = getattr(scene, 'trellis2_batch_folder', '')
+                _batch_count = getattr(scene, 'trellis2_batch_count', 0)
+                _batch_running = getattr(context.window_manager, 'sg_batch_running', False)
+                if _batch_running:
+                    _bi = getattr(context.window_manager, 'sg_batch_index', 0)
+                    _bt = getattr(context.window_manager, 'sg_batch_total', 0)
+                    action_row.operator("object.trellis2_batch_cancel",
+                                       text=f"Cancel Batch ({_bi}/{_bt})",
+                                       icon="CANCEL")
+                elif _batch_folder and _batch_count > 0:
+                    action_row.operator("object.trellis2_generate",
+                                        text="Generate Single", icon="MESH_ICOSPHERE")
+                    action_row.operator("object.trellis2_batch_generate",
+                                        text=f"Generate Batch ({_batch_count})",
+                                        icon="IMGDISPLAY")
+                else:
+                    action_row.operator("object.trellis2_generate",
+                                        text="Generate 3D Mesh", icon="MESH_ICOSPHERE")
         else:
             # --- Standard Diffusion Generate Button ---
             if config_error_message:
@@ -643,7 +669,26 @@ class StableGenPanel(bpy.types.Panel):
                 if scene.trellis2_generate_from == 'image':
                     split = params_container.split(factor=0.25)
                     split.label(text="Input Image:")
-                    split.prop(scene, "trellis2_input_image", text="")
+                    img_row = split.row(align=True)
+                    img_row.prop(scene, "trellis2_input_image", text="")
+                    img_row.operator("object.trellis2_batch_select_folder",
+                                     text="", icon="FILE_FOLDER")
+
+                    # Batch folder status row
+                    batch_folder = getattr(scene, 'trellis2_batch_folder', '')
+                    if batch_folder:
+                        batch_count = getattr(scene, 'trellis2_batch_count', 0)
+                        folder_name = os.path.basename(
+                            batch_folder.rstrip('/\\')) or batch_folder
+                        b_row = params_container.row(align=True)
+                        b_split = b_row.split(factor=0.78, align=True)
+                        b_split.label(
+                            text=f"Batch: {batch_count} image(s) – {folder_name}",
+                            icon="IMAGE_DATA")
+                        b_split.operator("object.trellis2_batch_clear",
+                                         text="", icon="X")
+                        rn_row = params_container.row()
+                        rn_row.prop(scene, "trellis2_batch_rename_meshes")
 
                 # Preview gallery (only when generate_from = prompt)
                 if scene.trellis2_generate_from == 'prompt':

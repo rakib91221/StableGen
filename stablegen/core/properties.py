@@ -1178,6 +1178,26 @@ def register_properties(update_model_list, ControlNetUnit, LoRAUnit,
         name="Input Image", description="Path to the reference image for 3D mesh generation",
         subtype='FILE_PATH', default=""
     )
+    # --- Batch generation ---
+    bpy.types.Scene.trellis2_batch_folder = bpy.props.StringProperty(
+        name="Batch Folder",
+        description="Folder containing images for batch TRELLIS.2 generation",
+        subtype='DIR_PATH', default=""
+    )
+    bpy.types.Scene.trellis2_batch_count = bpy.props.IntProperty(
+        name="Batch Image Count",
+        description="Number of supported images found in the batch folder",
+        default=0, min=0
+    )
+    bpy.types.Scene.trellis2_batch_rename_meshes = bpy.props.BoolProperty(
+        name="Name meshes after input files",
+        description="Rename each imported mesh to the stem of its source image filename",
+        default=True
+    )
+    # WindowManager props for live batch progress display
+    bpy.types.WindowManager.sg_batch_running = bpy.props.BoolProperty(default=False)
+    bpy.types.WindowManager.sg_batch_index = bpy.props.IntProperty(default=0)
+    bpy.types.WindowManager.sg_batch_total = bpy.props.IntProperty(default=0)
     bpy.types.Scene.trellis2_resolution = bpy.props.EnumProperty(
         name="Resolution", description="Model resolution for generation. Higher values use more VRAM",
         items=[
@@ -1586,7 +1606,9 @@ def unregister_properties(load_handler, _sg_queue_load_handler):
         'trellis2_import_scale', 'trellis2_shade_mode',
         'trellis2_clamp_elevation', 'trellis2_max_elevation', 'trellis2_min_elevation',
         'trellis2_preview_gallery_enabled', 'trellis2_preview_gallery_count',
-        'trellis2_input_image', 'trellis2_resolution', 'trellis2_vram_mode',
+        'trellis2_input_image', 'trellis2_batch_folder', 'trellis2_batch_count',
+        'trellis2_batch_rename_meshes',
+        'trellis2_resolution', 'trellis2_vram_mode',
         'trellis2_attn_backend', 'trellis2_seed', 'trellis2_ss_guidance',
         'trellis2_ss_steps', 'trellis2_shape_guidance', 'trellis2_shape_steps',
         'trellis2_tex_guidance', 'trellis2_tex_steps', 'trellis2_max_tokens',
@@ -1598,6 +1620,11 @@ def unregister_properties(load_handler, _sg_queue_load_handler):
     for prop in trellis2_props:
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
+
+    # --- Batch generation cleanup ---
+    for attr in ('sg_batch_running', 'sg_batch_index', 'sg_batch_total'):
+        if hasattr(bpy.types.WindowManager, attr):
+            delattr(bpy.types.WindowManager, attr)
 
     # --- Scene Queue cleanup ---
     if hasattr(bpy.types.WindowManager, 'sg_scene_queue'):
