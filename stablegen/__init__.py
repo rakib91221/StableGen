@@ -35,6 +35,11 @@ from .texturing.generator import (
     ComfyUIGenerate, Reproject, Regenerate, MirrorReproject,
 )
 from .mesh_gen.trellis2 import Trellis2Generate
+from .mesh_gen.batch import (
+    batch_classes as _batch_classes,
+    TRELLIS2_OT_BatchSelectFolder, TRELLIS2_OT_BatchGenerate,
+    TRELLIS2_OT_BatchCancel, TRELLIS2_OT_BatchClear,
+)
 from .dae_import import DAE_IMPORT_CLASSES
 
 # -- Core / UI sub-packages ----------------------------------------------
@@ -92,6 +97,10 @@ classes = [
     Regenerate,
     MirrorReproject,
     Trellis2Generate,
+    TRELLIS2_OT_BatchSelectFolder,
+    TRELLIS2_OT_BatchGenerate,
+    TRELLIS2_OT_BatchCancel,
+    TRELLIS2_OT_BatchClear,
     # Operators - render tools
     BakeTextures,
     AddCameras,
