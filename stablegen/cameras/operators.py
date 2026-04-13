@@ -9,7 +9,113 @@ from .overlays import (
     _sg_ensure_crop_overlay, _sg_remove_crop_overlay,
     _setup_square_camera_display,
 )
-from .geometry import _store_per_camera_resolution
+from .geometry import (
+    _store_per_camera_resolution,
+    _gather_target_meshes, _get_mesh_verts_world,
+    _compute_per_camera_aspect, _resolution_from_aspect,
+    _get_fov, _compute_silhouette_distance, _perspective_aspect,
+    _camera_basis, _rotation_from_basis, _get_resolution_align
+)
+import numpy as np
+
+class ApplyAutoAspect(bpy.types.Operator):
+    """Apply automatic aspect ratio and framing to selected cameras based on object silhouette.
+    
+    If no camera is selected, applies to all cameras in the 'sg_cameras' collection."""
+    bl_idname = "object.apply_auto_aspect"
+    bl_label = "Apply Auto Aspect"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == 'CAMERA' for o in context.scene.objects) and not sg_modal_active(context)
+
+    def execute(self, context):
+        cameras = [o for o in context.selected_objects if o.type == 'CAMERA']
+        if not cameras:
+            col = bpy.data.collections.get("sg_cameras")
+            if col:
+                cameras = [o for o in col.objects if o.type == 'CAMERA']
+            else:
+                cameras = [o for o in context.scene.objects if o.type == 'CAMERA']
+                
+        if not cameras:
+            self.report({'WARNING'}, "No cameras found")
+            return {'CANCELLED'}
+            
+        target_meshes = _gather_target_meshes(context)
+        if not target_meshes:
+            self.report({'WARNING'}, "No target meshes found for silhouette calculation")
+            return {'CANCELLED'}
+            
+        verts_world = _get_mesh_verts_world(target_meshes)
+        center_for_aspect = verts_world.mean(axis=0)
+        center_np = center_for_aspect
+        center_vec = mathutils.Vector(center_np.tolist())
+        
+        render = context.scene.render
+        total_px = render.resolution_x * render.resolution_y
+        align = _get_resolution_align(context)
+        
+        updated_count = 0
+        for cam_obj in cameras:
+            cam_settings = cam_obj.data
+            mat = cam_obj.matrix_world
+            # Extract direction: 'd' in the placement geometry logic points FROM the object TO the camera.
+            # Since the camera looks down its local -Z, the local +Z points back towards the camera.
+            d_vec = mathutils.Vector(mat.col[2][:3])
+            d_np = np.array([d_vec.x, d_vec.y, d_vec.z], dtype=float)
+            norm = np.linalg.norm(d_np)
+            if norm < 1e-6:
+                continue
+            d_unit = d_np / norm
+            
+            # --- Pass 1: orthographic aspect as initial estimate ---
+            aspect = _compute_per_camera_aspect(d_unit, verts_world, center_for_aspect)
+            res_x, res_y = _resolution_from_aspect(aspect, total_px, align=align)
+            fov_x, fov_y = _get_fov(cam_settings, context, res_x, res_y)
+            dist, aim_off = _compute_silhouette_distance(
+                verts_world, center_np, d_np, fov_x, fov_y)
+
+            # --- Pass 2: refine aspect from actual perspective camera pos ---
+            aim_point_np = center_np + aim_off
+            cam_pos_np = aim_point_np + d_unit * dist
+            aspect = _perspective_aspect(verts_world, cam_pos_np, d_np)
+            res_x, res_y = _resolution_from_aspect(aspect, total_px, align=align)
+            fov_x, fov_y = _get_fov(cam_settings, context, res_x, res_y)
+            dist, aim_off = _compute_silhouette_distance(
+                verts_world, center_np, d_np, fov_x, fov_y)
+
+            dir_vec = mathutils.Vector(d_np.tolist()).normalized()
+            aim_point = center_vec + mathutils.Vector(aim_off.tolist())
+            pos = aim_point + dir_vec * dist
+
+            # Apply new transform (world-space — works even with parented cameras)
+            right, up_v, d_unit_cam = _camera_basis(d_np)
+            cam_obj.matrix_world = mathutils.Matrix.LocRotScale(
+                pos,
+                _rotation_from_basis(right, up_v, d_unit_cam).to_quaternion(),
+                None,
+            )
+
+            # Store per-camera resolution
+            _store_per_camera_resolution(cam_obj, res_x, res_y)
+            _setup_square_camera_display(cam_obj, res_x, res_y)
+            updated_count += 1
+            
+        # Set scene to max square resolution for viewport display
+        all_sg_cams = [o for o in context.scene.objects if o.type == 'CAMERA' and 'sg_res_x' in o]
+        if all_sg_cams:
+            max_side = max(
+                max(int(c.get('sg_res_x', 0)), int(c.get('sg_res_y', 0)))
+                for c in all_sg_cams
+            )
+            if max_side > 0:
+                context.scene.render.resolution_x = max_side
+                context.scene.render.resolution_y = max_side
+                
+        self.report({'INFO'}, f"Applied Auto Aspect to {updated_count} camera(s)")
+        return {'FINISHED'}
 
 def switch_viewport_to_camera(context, camera):
     """Switches the first found 3D viewport to the specified camera's view."""

@@ -24,7 +24,7 @@ from .texturing.rendering import (
 from .texturing.orbit_export import ExportOrbitGIF
 from .texturing.game_export import ExportForGameEngine
 from .cameras import (
-    AddCameras, CloneCamera, MirrorCamera, ToggleCameraLabels,
+    AddCameras, ApplyAutoAspect, CloneCamera, MirrorCamera, ToggleCameraLabels,
     CollectCameraPrompts,
     CameraPromptItem, CameraOrderItem, SG_UL_CameraOrderList, SyncCameraOrder,
     MoveCameraOrder, ApplyCameraOrderPreset,
@@ -35,6 +35,7 @@ from .texturing.generator import (
     ComfyUIGenerate, Reproject, Regenerate, MirrorReproject,
 )
 from .mesh_gen.trellis2 import Trellis2Generate
+from .dae_import import DAE_IMPORT_CLASSES
 
 # -- Core / UI sub-packages ----------------------------------------------
 from .core.preferences import (
@@ -94,6 +95,7 @@ classes = [
     # Operators - render tools
     BakeTextures,
     AddCameras,
+    ApplyAutoAspect,
     CloneCamera,
     MirrorCamera,
     ToggleCameraLabels,
@@ -109,6 +111,8 @@ classes = [
     AddHDRI,
     ApplyModifiers,
     CurvesToMesh,
+    # Operators - DAE import
+    *DAE_IMPORT_CLASSES,
     # Operators - presets / panel
     ApplyPreset,
     SavePreset,

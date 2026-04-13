@@ -25,6 +25,7 @@ from .placement import AddCameras           # noqa: F401
 # -- operators.py -------------------------------------------------------------
 from .operators import (                    # noqa: F401
     switch_viewport_to_camera,
+    ApplyAutoAspect,
     CloneCamera,
     MirrorCamera,
     ToggleCameraLabels,

@@ -154,6 +154,7 @@ class StableGenPanel(bpy.types.Panel):
         cam_extra_row = layout.row(align=True)
         cam_extra_row.operator("object.clone_camera", text="Clone Camera", icon="DUPLICATE")
         cam_extra_row.operator("object.mirror_camera", text="Mirror", icon="MOD_MIRROR")
+        cam_extra_row.operator("object.apply_auto_aspect", text="Auto Aspect", icon="FULLSCREEN_ENTER")
         cam_extra_row.operator("object.toggle_camera_labels", text="Labels", icon="FONT_DATA")
         
 
@@ -1859,6 +1860,12 @@ class StableGenPanel(bpy.types.Panel):
         if width_mode == 'narrow':
             row = tools_box.row()
         row.operator("object.curves_to_mesh", text="Convert Curves to Mesh", icon="CURVE_DATA")
+
+        row = tools_box.row()
+        row.operator("stablegen.import_dae", text="Import DAE", icon="IMPORT")
+        if width_mode == 'narrow':
+            row = tools_box.row()
+        row.operator("stablegen.batch_import_dae", text="Batch Import DAE", icon="FILE_FOLDER")
         
         row = tools_box.row()
         if config_error_message:

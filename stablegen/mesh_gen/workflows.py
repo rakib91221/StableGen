@@ -75,6 +75,48 @@ class _Trellis2WorkflowMixin:
                     pass
 
     @staticmethod
+    def _rasterize_alpha(image_path, background_color='black'):
+        """Flatten a PNG's alpha channel onto a solid background colour.
+
+        When BG removal is set to *Skip*, the user's image may still
+        contain arbitrary RGB data behind transparent pixels.  Vision
+        encoders read raw RGB — not premultiplied data — so those
+        hidden pixels leak into the conditioning and corrupt the
+        generated shape.
+
+        This method composites the foreground onto *background_color*,
+        writes a new temp PNG (preserving the alpha channel for ComfyUI's
+        LoadImage mask output), and returns the path to that temp file.
+
+        If the image has no alpha channel, the original path is returned
+        unchanged.
+        """
+        import tempfile
+
+        img = Image.open(image_path)
+        if img.mode != 'RGBA':
+            return image_path  # nothing to rasterize
+
+        bg_map = {'black': (0, 0, 0), 'gray': (128, 128, 128), 'white': (255, 255, 255)}
+        bg_rgb = bg_map.get(background_color, (0, 0, 0))
+
+        # Composite: result_rgb = fg_rgb * alpha + bg_rgb * (1 - alpha)
+        r, g, b, a = img.split()
+        bg = Image.new('RGB', img.size, bg_rgb)
+        bg.paste(img, mask=a)
+
+        # Re-attach the original alpha so ComfyUI's LoadImage still
+        # provides the correct mask output via its second slot.
+        result = bg.convert('RGBA')
+        result.putalpha(a)
+
+        fd, tmp_path = tempfile.mkstemp(suffix='.png', prefix='sg_rasterized_')
+        os.close(fd)
+        result.save(tmp_path, 'PNG')
+        print(f"[TRELLIS2] Rasterized alpha onto {background_color} background: {tmp_path}")
+        return tmp_path
+
+    @staticmethod
     def _is_local_server(server_address):
         """Return True if server_address points to localhost."""
         host = server_address.split(':')[0].strip()
@@ -127,7 +169,31 @@ class _Trellis2WorkflowMixin:
 
         # Upload the input image to ComfyUI
         from .._generator_utils import upload_image_to_comfyui
+
+        # When BG removal is skipped, rasterize the image client-side:
+        # flatten the alpha channel onto the configured background colour so
+        # that invisible pixels behind the alpha don't leak into the
+        # conditioning encoder (which reads raw RGB, not premultiplied data).
+        skip_bg = getattr(context.scene, 'trellis2_bg_removal', 'auto') == 'skip'
+        rasterized_tmp = None
+        if skip_bg:
+            maybe_tmp = self._rasterize_alpha(
+                input_image_path,
+                getattr(context.scene, 'trellis2_background_color', 'black'),
+            )
+            if maybe_tmp != input_image_path:
+                rasterized_tmp = maybe_tmp
+                input_image_path = rasterized_tmp
+
         image_info = upload_image_to_comfyui(server_address, input_image_path)
+
+        # Clean up the temp rasterized file after upload
+        if rasterized_tmp:
+            try:
+                os.remove(rasterized_tmp)
+            except OSError:
+                pass
+
         if image_info is None:
             self.operator._error = f"Failed to upload input image: {input_image_path}"
             return {"error": self.operator._error}
